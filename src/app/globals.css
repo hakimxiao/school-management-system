@@ -1,3 +1,9 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer components {
+  .hover-textcolor-animation {
+    @apply hover:text-lamaPurple duration-700 transition-colors;
+  }
+}
