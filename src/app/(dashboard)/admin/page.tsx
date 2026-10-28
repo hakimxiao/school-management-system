@@ -1,4 +1,6 @@
+import AttendanceChart from "@/components/AttendanceChart";
 import CountCart from "@/components/CountCart";
+import FinanceChart from "@/components/FinanceChart";
 import UserCard from "@/components/UserCard";
 import React from "react";
 
@@ -21,10 +23,14 @@ const AdminPage = () => {
             <CountCart />
           </div>
           {/* ATTANDANCE CHART */}
-          <div className="w-full lg:w-2/3 h-[450px]"></div>
+          <div className="w-full lg:w-2/3 h-[450px]">
+            <AttendanceChart />
+          </div>
         </div>
         {/* BOTTOM CHART */}
-        <div className=""></div>
+        <div className="w-full h-[500px]">
+          <FinanceChart />
+        </div>
       </div>
 
       {/* RIGHT */}
