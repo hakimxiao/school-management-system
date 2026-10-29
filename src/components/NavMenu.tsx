@@ -128,7 +128,7 @@ const NavMenu = () => {
             <Link
               key={item.label}
               href={item.href}
-              className="flex items-center justify-center lg:justify-start gap-4 text-gray-500 py-2 md:px-2 rounded-md hover-textcolor-animation"
+              className="flex items-center justify-center lg:justify-start gap-4 text-gray-500 py-2 md:px-2 rounded-md hover:bg-lamaSky"
             >
               <Image src={item.icon} alt="icon-navbar" width={20} height={20} />
               <span className="hidden lg:block">{item.label}</span>
