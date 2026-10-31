@@ -12,21 +12,21 @@ type Value = ValuePiece | [ValuePiece, ValuePiece];
 const events = [
   {
     id: 1,
-    title: "Lorem, ipsum dolor.",
-    time: "12:00 WIB - 14:00 WIB",
-    description: "Lorem ipsum dolor sit amet consectetur adipisicing elit.",
+    title: "Rapat wali kelas",
+    time: "12.00–14.00 WIB",
+    description: "Pembahasan perkembangan belajar dan kehadiran siswa.",
   },
   {
     id: 2,
-    title: "Lorem, ipsum dolor.",
-    time: "10:00 WIB - 12:00 WIB",
-    description: "Lorem ipsum dolor sit amet consectetur adipisicing elit.",
+    title: "Pengumpulan tugas IPA",
+    time: "10.00–12.00 WIB",
+    description: "Batas pengumpulan tugas melalui wali kelas.",
   },
   {
     id: 3,
-    title: "Lorem, ipsum dolor.",
-    time: "08:00 WIB - 10:00 WIB",
-    description: "Lorem ipsum dolor sit amet consectetur adipisicing elit.",
+    title: "Upacara bendera",
+    time: "08.00–10.00 WIB",
+    description: "Upacara rutin di lapangan sekolah. Siswa hadir tepat waktu.",
   },
 ];
 
@@ -34,10 +34,10 @@ const EventCalendar = () => {
   const [value, onChange] = useState<Value>(new Date());
   return (
     <div className="bg-white p-4 rounded-lg">
-      <Calendar onChange={onChange} value={value} />
+      <Calendar locale="id-ID" onChange={onChange} value={value} />
 
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold my-4">Events</h1>
+        <h1 className="text-lg font-semibold my-4">Agenda</h1>
         <Image src="/moreDark.png" alt="triple-dot" width={20} height={20} />
       </div>
 

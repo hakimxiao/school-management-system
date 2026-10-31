@@ -16,7 +16,7 @@ const Announcements = () => {
           </div>
           <p className="text-sm text-gray-400 mt-1">
             Lorem ipsum dolor sit amet consectetur adipisicing elit. Nesciunt
-            reprehenderit molestiae inventore delectus.
+            reprehenderit.
           </p>
         </div>
 
@@ -29,7 +29,7 @@ const Announcements = () => {
           </div>
           <p className="text-sm text-gray-400 mt-1">
             Lorem ipsum dolor sit amet consectetur adipisicing elit. Nesciunt
-            reprehenderit molestiae inventore delectus.
+            reprehenderit.
           </p>
         </div>
 
@@ -42,7 +42,7 @@ const Announcements = () => {
           </div>
           <p className="text-sm text-gray-400 mt-1">
             Lorem ipsum dolor sit amet consectetur adipisicing elit. Nesciunt
-            reprehenderit molestiae inventore delectus.
+            reprehenderit.
           </p>
         </div>
       </div>
