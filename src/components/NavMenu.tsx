@@ -119,10 +119,12 @@ const menuItems = [
 
 const NavMenu = () => {
   return (
-    <div className="mt-4 text-sm">
+    <div className={`${role === "admin" ? "mt-1" : "mt-4"} text-sm`}>
       {menuItems.map((i) => (
         <div key={i.title} className="flex flex-col gap-2">
-          <span className="hidden lg:block text-gray-400 font-light my-4">
+          <span
+            className={`hidden lg:block text-gray-400 font-light ${role === "admin" ? "my-1.5" : "my-4"}`}
+          >
             {i.title}
           </span>
           {i.items.map((item) => {
@@ -131,7 +133,7 @@ const NavMenu = () => {
                 <Link
                   key={item.label}
                   href={item.href}
-                  className="flex items-center justify-center lg:justify-start gap-4 text-gray-500 py-2 md:px-2 rounded-md hover:bg-lamaSkyLight"
+                  className={`flex items-center justify-center lg:justify-start gap-4 text-gray-500 ${role === "admin" ? "py-[3px]" : "py-2"} md:px-2 rounded-md hover:bg-lamaSkyLight`}
                 >
                   <Image
                     src={item.icon}
