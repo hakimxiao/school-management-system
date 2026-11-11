@@ -321,7 +321,87 @@ PostgreSQL menggunakan namespace `public` secara default. Jalankan query databas
 di server (misalnya Server Component atau route handler), jangan expose akses
 database langsung dari komponen browser/client.
 
-9. PERINTAH LAMA YANG SERING MEMBINGUNGKAN
+9. SEED DATA AWAL
+-----------------
+Seed mengisi database dengan data contoh agar halaman aplikasi bisa dicoba.
+Di project ini:
+- Script seed: `prisma/seed.ts`
+- Client Prisma 8: dibuat dari `prisma/contract.json` menggunakan runtime
+  `@prisma/orm-postgres`; script tidak menggunakan `@prisma/client` Prisma 7.
+- Perintah: `npm run db:seed` (didefinisikan di `package.json`).
+
+Prisma 8 RC project ini belum menyediakan perintah bawaan `prisma db seed`.
+Karena itu seed dijalankan lewat script Node di package.json. Script memakai
+dukungan TypeScript bawaan Node (`--experimental-strip-types`) dan ditujukan
+untuk Node 22.18+; project ini saat ini menggunakan Node 24.19.
+
+Urutan setup untuk database baru:
+1. Pastikan PostgreSQL aktif dan `DATABASE_URL` di `.env` menunjuk ke database
+   development yang benar. Jangan menaruh URL rahasia di git atau chat.
+2. Emit contract jika `prisma/contract.prisma` baru diubah:
+
+       npx prisma contract emit
+
+3. Buat tabel. Untuk database development yang benar-benar kosong, ikuti bagian
+   6 (`db init`). Untuk alur migration yang tersimpan, tinjau dan terapkan
+   migration sesuai bagian 5. Jangan menjalankan `db init` pada database yang
+   sudah berisi data tanpa memastikan dampaknya.
+4. Pastikan contract dan database cocok:
+
+       npx prisma db verify
+
+5. Jalankan seed dari root project:
+
+       npm run db:seed
+
+Script membaca `DATABASE_URL` dari `.env` melalui `dotenv/config`, lalu membuat
+client Prisma 8 dari contract JSON. Tidak diperlukan `prisma generate` atau
+`@prisma/client` untuk alur ini. Saat selesai atau gagal, client ditutup dengan
+`db.close()`.
+
+Pola dasar query Prisma 8 yang digunakan di seed:
+
+    await db.orm.public.Admin.create({ id: "admin1", username: "admin1" });
+    await db.orm.public.Grade.create({ level: 1 });
+
+Setiap model menggunakan `db.orm.public.NamaModel.create(data)`. Buat data
+induk sebelum data anak yang memiliki foreign key. Contohnya Grade dan Teacher
+harus tersedia sebelum Class; Class, Subject, Teacher, Parent, dan Student harus
+tersedia sebelum Lesson, Event, Announcement, atau data terkait siswa. Isi field
+yang benar-benar diwajibkan contract dan gunakan enum yang didefinisikan di
+`contract.prisma`.
+
+Seed saat ini mempertahankan data contoh sumber: 2 Admin, 6 Grade, 6 Class,
+10 Subject, 15 Teacher, 30 Lesson, 25 Parent, 50 Student, serta 10 Exam,
+Assignment, Result, dan Attendance; juga 5 Event dan 5 Announcement. Beberapa
+detail wajib mengikuti contract project ini:
+- Class memerlukan `supervisorId`, sehingga tiap kelas diberi guru supervisor.
+- Relasi Teacher-Subject menggunakan model penghubung eksplisit
+  `TeacherSubject`; buat baris join dengan `teacherId` dan `subjectId`.
+- Model Student dan Teacher di contract ini tidak memiliki `birthday`, jadi
+  field tersebut tidak dikirim.
+- ID numerik Grade, Class, Subject, Lesson, dan model lainnya dibuat otomatis
+  oleh database. Seed mengasumsikan database kosong/ID awal sesuai urutan seed.
+
+Seed ini untuk pengisian awal dan tidak idempotent. Menjalankan lagi pada data
+yang sudah ada dapat gagal pada unique constraint seperti `username`, `email`,
+atau `name`. Seed juga membuat baris secara berurutan, bukan dalam satu
+transaction; jika gagal di tengah, sebagian data mungkin sudah masuk. Periksa
+error dan database sebelum menjalankan ulang. Untuk mengulang dari awal, gunakan
+database development kosong atau bersihkan data secara terencana sesuai
+kebijakan proyek; jangan menghapus tabel/data production.
+
+Mengubah atau menambah seed:
+1. Baca model, required field, enum, dan relasi di `prisma/contract.prisma`.
+2. Jika contract berubah, emit contract dan terapkan perubahan schema terlebih
+   dahulu.
+3. Edit `prisma/seed.ts`; buat record sesuai tipe field dan urutan foreign key.
+   Untuk relasi many-to-many, periksa apakah contract memakai model join.
+4. Jalankan `npx tsc --noEmit` untuk memeriksa tipe, lalu `npm run db:seed` pada
+   database development yang benar.
+5. Periksa hasil melalui Prisma Studio sesuai bagian 7 atau query aplikasi.
+
+10. PERINTAH LAMA YANG SERING MEMBINGUNGKAN
 ------------------------------------------
 Untuk alur Prisma 8 project ini:
 - `npx prisma generate`            -> `npx prisma contract emit`
@@ -346,7 +426,7 @@ migration atau Studio. Sinkronisasi bersifat opsional:
 
     npx prisma skills sync
 
-10. PEMECAHAN MASALAH SINGKAT
+11. PEMECAHAN MASALAH SINGKAT
 -----------------------------
 `ECONNREFUSED 127.0.0.1/127.0.1.1:5432`
   URL yang dipakai masih menunjuk loopback. Gunakan IP LAN komputer database,
@@ -372,7 +452,43 @@ Error autentikasi / host tidak ditemukan meski port terbuka
   Jangan memakai `db sign` untuk menutupi perbedaan; `db sign` hanya untuk
   database yang memang sudah cocok dengan contract.
 
-11. ALUR HARIAN YANG PERLU DIINGAT
+`npm run db:seed` gagal dengan `ERR_MODULE_NOT_FOUND` untuk `./db`
+  Pastikan `prisma/seed.ts` yang terbaru digunakan. Node yang menjalankan
+  TypeScript langsung sebagai ESM membutuhkan ekstensi pada import lokal. Seed
+  project ini membuat client dari runtime dan contract JSON secara langsung;
+  jangan mengembalikan import extensionless `./db`.
+
+Peringatan `MODULE_TYPELESS_PACKAGE_JSON`
+  Pada Node 24, ini peringatan bahwa package belum menyatakan `type: module` dan
+  Node mendeteksi sintaks ESM di file TypeScript. Peringatan ini sendiri tidak
+  menghentikan seed. Jika sesudahnya ada error lain, tangani error berikutnya.
+  Jangan menambah `"type": "module"` ke package.json hanya untuk menghilangkan
+  peringatan tanpa mengecek dampaknya pada konfigurasi dan tooling Next.js.
+
+`npm run db:seed` gagal dengan `ECONNREFUSED` atau error autentikasi
+  Ikuti pemecahan masalah koneksi di bagian 2. Pastikan `.env` dan database yang
+  dipilih benar. Seed benar-benar menulis ke database yang ditunjuk URL itu.
+
+Error tabel tidak ditemukan / `relation does not exist`
+  Schema belum dibuat pada database tersebut, migration belum diterapkan, atau
+  `DATABASE_URL` menunjuk ke database yang berbeda. Jalankan setup bagian 5/6
+  dan verifikasi dengan `npx prisma db verify` sebelum seed.
+
+Error duplicate key / unique constraint
+  Seed kemungkinan sudah pernah dijalankan. Seed saat ini bukan upsert dan tidak
+  aman dijalankan berulang. Periksa data yang sudah masuk sebelum mengulang.
+
+Error foreign key / record referenced does not exist
+  Pastikan urutan pembuatan data induk-anak di seed tetap benar dan ID relasi
+  sesuai record yang dibuat. Jika schema berubah, tinjau ulang seed terhadap
+  `contract.prisma` dan emit/migrate schema sebelum menjalankannya.
+
+Error TypeScript seperti field tidak dikenal (`birthday`, `subjects`, dll.)
+  Seed sumber Prisma 7 memiliki API/relasi berbeda. Gunakan nama dan field dari
+  contract Prisma 8 saat ini; relasi teacher-subject di project memakai model
+  `TeacherSubject`, bukan `subjects: { connect: ... }`.
+
+12. ALUR HARIAN YANG PERLU DIINGAT
 ----------------------------------
 1. Edit `prisma/contract.prisma`.
 2. Jalankan `npx prisma contract emit`.
@@ -380,8 +496,11 @@ Error autentikasi / host tidak ditemukan meski port terbuka
 4. Baca hasil migration; pastikan tipe, relasi, dan perubahan data benar.
 5. Terapkan dengan `npx prisma db migrate --advance-ref db`.
 6. Jalankan `npx prisma migration status` dan `npx prisma db verify`.
-7. Buka Studio dengan `npx prisma@prev studio --url ...` dari luar project.
-8. Commit contract, file hasil emit, dan migration ke git. Jangan commit .env.
+7. Jika perlu data contoh di database development kosong, jalankan
+   `npm run db:seed`; jangan jalankan ulang tanpa memeriksa unique constraint.
+8. Buka Studio dengan `npx prisma@prev studio --url ...` dari luar project.
+9. Commit contract, file hasil emit, migration, dan perubahan seed ke git.
+   Jangan commit `.env`.
 
 LINK DOKUMENTASI RESMI
 ----------------------
