@@ -1,0 +1,408 @@
+PANDUAN PRAKTIS PRISMA ORM 8 - SCHOOL MANAGEMENT
+================================================
+
+Panduan ini disusun untuk project ini: Next.js, PostgreSQL, Prisma ORM 8 RC,
+kontrak di prisma/contract.prisma, dan konfigurasi di prisma.config.ts.
+
+Catatan sumber:
+- Isi catatan proses yang diberikan, file prisma-8.md, kondisi file project,
+  dan dokumentasi resmi Prisma.
+- Versi Prisma 8 masih RC/berubah cepat. Gunakan `npx prisma ...` agar perintah
+  memakai versi lokal project dan cek `npx prisma --help` bila perintah berbeda.
+
+PETA CEPAT
+----------
+Ubah model -> emit contract -> rencanakan migration -> tinjau -> terapkan
+-> cek status/verifikasi -> buka Studio untuk melihat tabel dan datanya.
+
+Di project ini:
+- Sumber model: prisma/contract.prisma
+- Konfigurasi CLI dan database: prisma.config.ts
+- Rahasia koneksi: .env (jangan commit atau kirim ke chat)
+- Hasil emit: prisma/contract.json dan prisma/contract.d.ts
+- Migration: migrations/app/
+- Client aplikasi: prisma/db.ts
+
+1. PRASYARAT DAN VERSI
+----------------------
+- Node.js yang didukung Prisma 8. Dokumentasi saat panduan ini dibuat
+  mencantumkan Node 22.18+, 24.11+, atau 26+; Node 24 direkomendasikan.
+- PostgreSQL 15 atau lebih baru untuk setup project ini.
+- Dari root project, cek versi:
+
+    node --version
+    npx prisma --version
+    npm ls prisma @prisma/orm-postgres
+
+Project menggunakan dua paket berbeda: `prisma` adalah CLI, sedangkan
+`@prisma/orm-postgres` menyediakan runtime PostgreSQL. Versinya tidak harus
+memiliki nomor patch/RC yang sama. Jangan menjalankan instalasi versi terbaru
+secara membabi buta pada project yang sedang memakai RC; perubahan versi dapat
+mengubah CLI atau API.
+
+2. KONEKSI POSTGRESQL
+---------------------
+File .env di root harus mempunyai DATABASE_URL. Bentuk umumnya:
+
+    DATABASE_URL="postgresql://USER:PASSWORD@HOST:5432/NAMA_DATABASE"
+
+Untuk database di komputer lain, HOST harus IP LAN komputer database, bukan
+127.0.0.1/127.0.1.1 dan bukan IP internal Docker/WSL. Pastikan:
+- PostgreSQL/Docker aktif dan port 5432 dipublish ke jaringan.
+- Firewall komputer database mengizinkan TCP 5432.
+- Kedua komputer dapat saling terhubung di jaringan yang sama.
+- Coba dari Windows:
+
+    Test-NetConnection <IP_KOMPUTER_DATABASE> -Port 5432
+
+Hasil `TcpTestSucceeded : True` berarti port dapat dijangkau. Jika gagal,
+perbaiki jaringan/PostgreSQL terlebih dahulu; itu belum merupakan masalah
+Prisma.
+
+Karakter khusus di username/password harus di-URL-encode. Contoh umum:
+@ menjadi %40, : menjadi %3A, / menjadi %2F, # menjadi %23, % menjadi %25.
+Encode karakter pada bagian username/password saja. Jangan menaruh URL asli
+atau password di dokumen, screenshot, git, atau chat publik.
+
+prisma.config.ts project ini membaca `.env` melalui `import "dotenv/config"`
+dan mengambil URL dari `process.env["DATABASE_URL"]`. Jika terminal sudah
+memiliki DATABASE_URL, nilainya dapat mengalahkan .env. Untuk menghapus hanya
+override terminal PowerShell saat ini:
+
+    Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
+
+Lalu jalankan kembali perintah Prisma dari root project.
+
+3. MEMAHAMI CONTRACT DAN SCHEMA
+------------------------------
+Di Prisma 8, file model disebut contract. Sintaks model masih mirip Prisma lama,
+tetapi file ini wajib diawali:
+
+    // use prisma-8
+
+Di project ini file tersebut adalah prisma/contract.prisma (bukan
+prisma/schema.prisma). File contract tidak memuat blok datasource/generator;
+koneksi diletakkan di prisma.config.ts.
+
+Contoh model sederhana:
+
+    // use prisma-8
+
+    model Student {
+      id       String @id
+      username String @unique
+      name     String
+      email    String? @unique
+    }
+
+`String?` artinya kolom boleh NULL. `@id` adalah primary key, `@unique`
+memastikan nilainya unik, dan `@default(autoincrement())` lazim digunakan
+untuk ID angka.
+
+Relasi harus memakai tipe ID yang sama di kedua sisi. Contoh `Subject.id` adalah
+Int, sehingga `TeacherSubject.subjectId` juga harus Int. Many-to-many ditulis
+secara eksplisit dengan model penghubung seperti `TeacherSubject`; pola lama
+many-to-many implisit tidak didukung di contract ini. Karena relasi memakai
+join model, daftar `teacher.subjects` berisi baris TeacherSubject.
+
+Contoh inti relasi many-to-many:
+
+    model Teacher {
+      id       String @id
+      subjects TeacherSubject[]
+    }
+
+    model Subject {
+      id       Int @id @default(autoincrement())
+      name     String @unique
+      teachers TeacherSubject[]
+    }
+
+    model TeacherSubject {
+      teacherId String
+      subjectId Int
+      teacher   Teacher @relation(fields: [teacherId], references: [id])
+      subject   Subject @relation(fields: [subjectId], references: [id])
+      @@id([teacherId, subjectId])
+    }
+
+Periksa tipe foreign key dengan teliti sebelum apply. Beberapa perbaikan yang
+sudah tercatat di project:
+- Attendance.lessonId harus Int karena Lesson.id adalah Int.
+- Lesson memiliki satu Subject melalui `subject`, bukan daftar `subjects`.
+- Result.examId dan Result.assignmentId nullable (Int?) bila satu hasil bisa
+  berasal dari ujian atau tugas.
+- Ejaan enum hari adalah THURSDAY.
+- TeacherSubject.subjectId harus Int, sesuai Subject.id.
+- Di file contract dan migration setuptable project saat ini, subjectId sudah
+  bertipe Int.
+
+4. EMIT CONTRACT
+----------------
+Setiap kali contract.prisma berubah, dari root project jalankan:
+
+    npx prisma contract emit
+
+Perintah ini memeriksa contract dan memperbarui:
+- prisma/contract.json: deskripsi model untuk runtime dan migration.
+- prisma/contract.d.ts: tipe TypeScript untuk autocomplete/type checking.
+
+File hasil emit jangan diedit manual. Jalankan emit lagi setelah perubahan
+contract. Biasanya kedua file hasil emit ikut disimpan/commit bersama sumbernya.
+
+Jika muncul `PSL_ORPHANED_BACKRELATION`, periksa relasi balik dan gunakan
+model penghubung eksplisit untuk many-to-many.
+
+5. MIGRATION: MEMBUAT PERUBAHAN DATABASE
+----------------------------------------
+Untuk perubahan biasa, gunakan alur ini:
+
+LANGKAH A - Ubah model
+Edit `prisma/contract.prisma`. Contoh: menambah field baru pada Student.
+
+LANGKAH B - Emit
+
+    npx prisma contract emit
+
+LANGKAH C - Rencanakan migration
+
+    npx prisma migration plan --name add_student_field
+
+`migration plan` menulis file di `migrations/app/<timestamp>_<nama>/`.
+Perintah plan bekerja pada file lokal dan tidak mengubah database.
+
+LANGKAH D - Tinjau rencana sebelum menyentuh database
+
+    npx prisma migration show <folder-migration>
+
+Periksa daftar operasi/DDL, nama tabel, tipe kolom, foreign key, nilai NULL,
+dan operasi yang dapat menghapus atau mengubah data. Jika tipe foreign key
+salah atau rencana tidak sesuai, jangan apply. Perbaiki contract, emit ulang,
+lalu buat ulang migration yang belum pernah diterapkan. Jangan hapus migration
+yang sudah diterapkan pada database.
+
+LANGKAH E - Terapkan migration
+
+    npx prisma db migrate --advance-ref db
+
+Perintah inilah yang menerapkan migration ke database. `--advance-ref db`
+memperbarui ref pengembangan agar migration berikutnya dimulai dari keadaan
+terbaru. Jika memakai URL langsung dengan `--db`, lihat bantuan versi lokal dan
+pastikan ref diperbarui dengan opsi yang sesuai. Jangan gunakan URL production
+untuk eksperimen.
+
+LANGKAH F - Periksa hasilnya
+
+    npx prisma migration status
+    npx prisma db verify
+
+`migration status` menunjukkan status migration. `db verify` memeriksa apakah
+contract dan struktur database cocok. Keduanya menghubungi database namun hanya
+untuk pemeriksaan.
+
+Catatan awal migration:
+- Project ini sudah memiliki migration `20261111T0813_setuptable` di
+  `migrations/app/`. Sebelum membuat baseline/migration baru, periksa folder,
+  `migrations/app/refs/`, dan status database agar tidak membuat rencana ganda.
+- Jika belum ada `db` ref, planner dapat memulai dari contract kosong dan
+  merencanakan pembuatan semua tabel. Ini wajar untuk migration baseline;
+  tinjau hasilnya sebelum apply.
+- Apply pertama yang sukses dapat menggunakan `--advance-ref db` agar ref lokal
+  maju ke contract yang sudah diterapkan.
+- Jika folder migration sudah dibagikan/diterapkan di database lain, jangan
+  menulis ulang atau menghapusnya.
+
+6. DATABASE BARU, DATABASE YANG SUDAH ADA, DAN DB UPDATE
+------------------------------------------------------
+Pilih jalur yang sesuai:
+
+A. Database benar-benar kosong dan project baru:
+
+    npx prisma contract emit
+    npx prisma db init
+    npx prisma db verify
+
+`db init` membuat struktur yang dibutuhkan contract pada database kosong dan
+menandainya sebagai contract yang cocok. Untuk menyimpan riwayat yang dapat
+diulang di environment lain, rencanakan dan commit baseline migration juga.
+
+B. Database yang sudah berisi tabel/data dan belum dikelola Prisma 8:
+- Jangan jalankan `db init` sembarangan pada database berisi data.
+- Contract harus mencerminkan struktur yang ada.
+- Jika database sudah persis cocok, gunakan prosedur `db sign` untuk
+  menandainya tanpa mengubah tabel. Jika tidak cocok, rapikan rencana dahulu.
+- Jika sebelumnya dikelola Prisma 7, ikuti panduan upgrade/migrasi resmi agar
+  riwayat migration lama tidak terputus.
+
+C. Mengubah database development langsung tanpa membuat migration tersimpan:
+
+    npx prisma contract emit
+    npx prisma db update --dry-run
+    npx prisma db update
+
+Gunakan `db update` hanya jika memang ingin menyelaraskan database langsung dan
+tidak membutuhkan perubahan itu sebagai migration yang direview/di-commit.
+Untuk alur tim dan deployment, pilih `migration plan` lalu `db migrate`.
+`db update` bukan pengganti aman untuk menghapus data; tinjau dry-run terlebih
+dahulu.
+
+7. BUKA PRISMA STUDIO DI PROJECT INI
+------------------------------------
+`npx prisma studio` tidak bekerja di project ini karena CLI Prisma 8 RC yang
+terpasang belum mendaftarkan perintah `studio`. Menambahkan `--url` pada
+perintah tersebut tidak memperbaikinya.
+
+Studio saat ini dijalankan memakai CLI Prisma 7 terpisah, dari folder di luar
+project Prisma 8, dengan URL database diberikan langsung. Dokumentasi Prisma
+terbaru memakai `npx prisma@prev`. `@prev` mengunduh rilis Prisma sebelumnya
+(saat panduan disusun versi 7.10.1), tanpa mengganti CLI Prisma 8 di project.
+
+Cara praktis di PowerShell, jalankan dari root project. Skrip membaca URL dari
+.env dan tidak mencetaknya:
+
+    $entry = Get-Content -LiteralPath .env |
+      Where-Object { $_ -match '^\s*DATABASE_URL\s*=' } |
+      Select-Object -First 1
+    if (-not $entry) { throw 'DATABASE_URL tidak ditemukan di .env' }
+    $dbUrl = ($entry -replace '^\s*DATABASE_URL\s*=\s*', '').Trim().Trim('"').Trim("'")
+    if (-not $dbUrl) { throw 'DATABASE_URL kosong di .env' }
+    Push-Location ..
+    try {
+      npx prisma@prev studio --url="$dbUrl"
+    } finally {
+      Pop-Location
+    }
+
+Pertama kali, npx mungkin meminta izin mengunduh paket; jawab `y`. Tunggu
+sampai terminal mencetak alamat seperti:
+
+    Prisma Studio is running at: http://localhost:5555
+
+Buka alamat yang benar-benar dicetak terminal. Port default umumnya 5555, tetapi
+bila port sedang dipakai Studio bisa memilih port lain. Biarkan terminal tetap
+berjalan selama Studio digunakan; tekan Ctrl+C untuk menghentikannya.
+
+Alternatif dengan URL langsung:
+
+    npx prisma@prev studio --url="postgresql://USER:PASSWORD@HOST:5432/NAMA_DATABASE"
+
+Gunakan URL yang password-nya sudah di-encode. Jangan mengetik URL rahasia di
+file panduan atau membagikannya. Studio harus bisa menjangkau database yang sama
+seperti perintah migration. Tampilan Migrations hanya muncul jika database
+memiliki riwayat migration Prisma 8 yang sudah diterapkan.
+
+Catatan perbedaan perintah:
+- Gunakan `npx prisma@prev studio` sesuai dokumentasi Prisma saat ini dan cara
+  yang sudah berhasil dijalankan di project ini.
+- Catatan percakapan menyebut `npx prisma@dev studio`; itu adalah jalur build
+  development yang dapat berubah. Pakai hanya bila memang ingin menguji build
+  dev. Jangan mengganti perintah migration project menjadi `@prev` atau `@dev`.
+- Jalankan CLI Studio dari folder induk karena CLI Prisma 7 dapat mencoba
+  membaca prisma.config.ts Prisma 8 jika dijalankan dari root project.
+
+8. QUERY DARI APLIKASI
+---------------------
+Client project sudah disiapkan di `prisma/db.ts`. Contoh query dari kode
+server-side:
+
+    import { db } from "@/prisma/db";
+
+    const students = await db.orm.public.Student
+      .orderBy((student) => student.name.asc())
+      .take(20)
+      .all();
+
+    const student = await db.orm.public.Student
+      .where({ username: "student01" })
+      .first();
+
+`.all()` mengembalikan daftar; `.first()` mengembalikan satu baris atau null.
+PostgreSQL menggunakan namespace `public` secara default. Jalankan query database
+di server (misalnya Server Component atau route handler), jangan expose akses
+database langsung dari komponen browser/client.
+
+9. PERINTAH LAMA YANG SERING MEMBINGUNGKAN
+------------------------------------------
+Untuk alur Prisma 8 project ini:
+- `npx prisma generate`            -> `npx prisma contract emit`
+- `npx prisma migrate dev`         -> `migration plan`, tinjau, lalu `db migrate`
+- `npx prisma migrate deploy`      -> `npx prisma db migrate`
+- `npx prisma migrate status`      -> `npx prisma migration status`
+- `npx prisma db push`             -> bootstrap: `db init`; perubahan langsung:
+                                      `db update`
+- `npx prisma studio`              -> jalankan Studio dengan CLI terpisah,
+                                      `npx prisma@prev studio --url ...`
+- `npx prisma migration apply`      -> bukan perintah pada CLI ini; gunakan
+                                      `npx prisma db migrate`
+
+Untuk mengecek perintah dan opsi pada versi lokal:
+
+    npx prisma --help
+    npx prisma migration plan --help
+    npx prisma db migrate --help
+
+Pesan tentang Prisma agent skills yang belum sinkron tidak menghalangi
+migration atau Studio. Sinkronisasi bersifat opsional:
+
+    npx prisma skills sync
+
+10. PEMECAHAN MASALAH SINGKAT
+-----------------------------
+`ECONNREFUSED 127.0.0.1/127.0.1.1:5432`
+  URL yang dipakai masih menunjuk loopback. Gunakan IP LAN komputer database,
+  cek override DATABASE_URL di terminal, Docker port mapping, dan firewall.
+
+`ECONNREFUSED <IP>:5432` atau Test-NetConnection gagal
+  PostgreSQL tidak menerima koneksi dari komputer ini. Periksa Docker, port
+  publish, firewall, jaringan, dan alamat IP komputer database.
+
+Error autentikasi / host tidak ditemukan meski port terbuka
+  Periksa nama database, user, password dan URL-encoding karakter khusus.
+
+`CLI.UNKNOWN_COMMAND` untuk studio
+  Perintah Studio tidak tersedia di CLI Prisma 8 RC lokal. Gunakan instruksi
+  Studio pada bagian 7.
+
+`PSL_ORPHANED_BACKRELATION` atau error tipe foreign key
+  Periksa hubungan dua arah, buat join model eksplisit untuk many-to-many, dan
+  pastikan tipe foreign key sama dengan tipe primary key yang dirujuk.
+
+`db verify` gagal
+  Bandingkan contract, migration yang telah diterapkan, dan struktur database.
+  Jangan memakai `db sign` untuk menutupi perbedaan; `db sign` hanya untuk
+  database yang memang sudah cocok dengan contract.
+
+11. ALUR HARIAN YANG PERLU DIINGAT
+----------------------------------
+1. Edit `prisma/contract.prisma`.
+2. Jalankan `npx prisma contract emit`.
+3. Jalankan `npx prisma migration plan --name nama_perubahan`.
+4. Baca hasil migration; pastikan tipe, relasi, dan perubahan data benar.
+5. Terapkan dengan `npx prisma db migrate --advance-ref db`.
+6. Jalankan `npx prisma migration status` dan `npx prisma db verify`.
+7. Buka Studio dengan `npx prisma@prev studio --url ...` dari luar project.
+8. Commit contract, file hasil emit, dan migration ke git. Jangan commit .env.
+
+LINK DOKUMENTASI RESMI
+----------------------
+Prisma 8 quickstart PostgreSQL:
+https://www.prisma.io/docs/prisma-orm/quickstart/postgresql
+
+Contract Prisma:
+https://www.prisma.io/docs/orm/contract-authoring/the-data-contract
+
+Generate migration:
+https://www.prisma.io/docs/orm/migrations/generating-a-migration
+
+Menerapkan migration:
+https://www.prisma.io/docs/orm/migrations/applying-a-migration
+
+Prisma Studio dengan Prisma 8:
+https://www.prisma.io/docs/studio/prisma-next
+
+Membaca data dengan Prisma 8:
+https://www.prisma.io/docs/orm/fundamentals/reading-data
+
+Prisma ORM 8.md di root project juga berisi catatan awal project. Jika isi file
+lama tersebut menyebut `schema.prisma`, sesuaikan dengan file yang benar di
+project saat ini, yaitu `prisma/contract.prisma`.
