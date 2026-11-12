@@ -2,12 +2,13 @@ import FormModal from "@/components/FormModal";
 import Pagination from "@/components/Pagination";
 import Table from "@/components/Table";
 import TableSearch from "@/components/TableSearch";
-import { role } from "@/lib/data";
 import Image from "next/image";
 import Link from "next/link";
+import { role } from "@/lib/data";
 import { db } from "../../../../../prisma/db";
 import type { ResultType } from "@prisma/orm-postgres/components/runtime";
 import { ITEM_PER_PAGE } from "@/lib/settings";
+import { and } from "@prisma/orm-postgres/orm-client";
 
 const COLUMNS = [
   {
@@ -45,17 +46,11 @@ const COLUMNS = [
   },
 ];
 
-// Teacher.subjects berisi baris penghubung TeacherSubject.
-// Setiap baris penghubung menunjuk ke satu Subject, jadi Subject perlu di-include
-// di dalam subjects agar kita bisa membaca subject.name.
 const getTeachersQuery = () =>
   db.orm.public.Teacher.include("subjects", (teacherSubjects) =>
     teacherSubjects.include("subject"),
-  )
-    // Kelas adalah relasi langsung dari Teacher.
-    .include("classes");
+  ).include("classes");
 
-// Tipe satu baris data, mengikuti relasi yang di-include di atas.
 type TeacherListItem = ResultType<ReturnType<typeof getTeachersQuery>>;
 
 const renderRow = (item: TeacherListItem) => (
@@ -106,20 +101,67 @@ const TeachersListPage = async ({
   const { page, ...queryParams } = searchParams;
   const p = page ? parseInt(page) : 1;
 
-  // Prisma 8 memakai callback transaction. Ambil halaman dan total count
-  // dalam satu transaksi; count dibuat dengan aggregate().
+  // URL PARAMS CONDITION
+  let classId: number | undefined;
+  let search: string | undefined;
+
+  for (const [key, value] of Object.entries(queryParams)) {
+    if (value === undefined || value === "") continue;
+
+    switch (key) {
+      case "classId": {
+        const parsed = Number(value);
+
+        if (Number.isInteger(parsed)) classId = parsed;
+        break;
+      }
+
+      case "search":
+        search = value.trim() || undefined;
+        break;
+
+      default:
+        break;
+    }
+  }
+
   const [data, count] = await db.transaction(async (tx) => {
-    const data = await tx.orm.public.Teacher.include(
-      "subjects",
-      (teacherSubjects) => teacherSubjects.include("subject"),
-    )
+    const teachers = tx.orm.public.Teacher;
+    const hasFilters = classId !== undefined || search !== undefined;
+
+    const teacherQuery = hasFilters
+      ? teachers.where((teacher) => {
+          const filters = [];
+
+          if (classId !== undefined) {
+            filters.push(
+              teacher.lessons.some((lesson) => lesson.classId.eq(classId)),
+            );
+          }
+
+          if (search !== undefined) {
+            filters.push(teacher.name.ilike(`%${search}`));
+          }
+
+          if (filters.length === 1) {
+            return filters[0];
+          }
+
+          return and(...filters);
+        })
+      : teachers;
+
+    const data = await teacherQuery
+      .include("subjects", (teacherSubjects) =>
+        teacherSubjects.include("subject"),
+      )
       .include("classes")
       .orderBy((teacher) => teacher.id.asc())
       .limit(ITEM_PER_PAGE)
       .offset(ITEM_PER_PAGE * (p - 1))
       .all();
 
-    const countResult = await tx.orm.public.Teacher.aggregate((aggregate) => ({
+    const countResult = await teacherQuery.aggregate((aggregate) => ({
       totalTeachers: aggregate.count(),
     }));
 

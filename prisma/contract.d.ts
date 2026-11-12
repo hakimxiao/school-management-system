@@ -384,8 +384,10 @@ export namespace Models {
     events: public_Event[];
     grade: public_Grade;
     lessons: public_Lesson[];
+    students: public_Student[];
     supervisor: public_Teacher;
-    readonly [RelationKeys]?: 'announcements' | 'events' | 'grade' | 'lessons' | 'supervisor';
+    readonly [RelationKeys]?:
+      'announcements' | 'events' | 'grade' | 'lessons' | 'students' | 'supervisor';
   };
   export type public_Event = {
     classId: FieldOutputTypes['public']['Event']['classId'];
@@ -1930,6 +1932,17 @@ type ContractBase = Omit<
                 readonly to: {
                   readonly namespace: 'public' & NamespaceId;
                   readonly model: 'Lesson';
+                };
+                readonly cardinality: '1:N';
+                readonly on: {
+                  readonly localFields: readonly ['id'];
+                  readonly targetFields: readonly ['classId'];
+                };
+              };
+              readonly students: {
+                readonly to: {
+                  readonly namespace: 'public' & NamespaceId;
+                  readonly model: 'Student';
                 };
                 readonly cardinality: '1:N';
                 readonly on: {

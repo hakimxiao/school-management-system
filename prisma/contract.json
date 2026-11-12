@@ -517,6 +517,21 @@
                   "namespace": "public"
                 }
               },
+              "students": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "classId"
+                  ]
+                },
+                "to": {
+                  "model": "Student",
+                  "namespace": "public"
+                }
+              },
               "supervisor": {
                 "cardinality": "N:1",
                 "nullable": false,
