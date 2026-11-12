@@ -2,96 +2,168 @@ import FormModal from "@/components/FormModal";
 import Pagination from "@/components/Pagination";
 import Table from "@/components/Table";
 import TableSearch from "@/components/TableSearch";
-import { role, studentsData } from "@/lib/data";
+import { role } from "@/lib/data";
+import { ITEM_PER_PAGE } from "@/lib/settings";
 import Image from "next/image";
 import Link from "next/link";
-import React from "react";
+import { db } from "../../../../../prisma/db";
+import type { ResultType } from "@prisma/orm-postgres/components/runtime";
+import { and } from "@prisma/orm-postgres/orm-client";
 
-type Student = {
-  id: number;
-  studentId: string;
-  name: string;
-  email?: string;
-  photo: string;
-  phone?: string;
-  grade: number;
-  class: string;
-  address: string;
-};
+// Query ini menentukan relasi yang dibutuhkan setiap baris tabel.
+const getStudentsQuery = () => db.orm.public.Student.include("class");
 
-const COLUMNS = [
-  {
-    header: "Info",
-    accessor: "info",
-  },
-  {
-    header: "Student ID",
-    accessor: "studentId",
-    className: "hidden md:table-cell",
-  },
-  {
-    header: "Grade",
-    accessor: "grade",
-    className: "hidden md:table-cell",
-  },
-  {
-    header: "Phone",
-    accessor: "phone",
-    className: "hidden lg:table-cell",
-  },
-  {
-    header: "Address",
-    accessor: "address",
-    className: "hidden lg:table-cell",
-  },
-  {
-    header: "Actions",
-    accessor: "actions",
-  },
-];
+type StudentListItem = ResultType<ReturnType<typeof getStudentsQuery>>;
 
-const StudentsListPage = () => {
-  const renderRow = (item: Student) => (
-    <tr
-      key={item.id}
-      className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
-    >
-      <td className="flex items-center gap-4 p-4">
-        <Image
-          src={item.photo}
-          alt="teacher-photo"
-          width={40}
-          height={40}
-          className="md:hidden xl:block size-10 rounded-full object-cover"
-        />
-        <div className="flex flex-col">
-          <h3 className="font-semibold">{item.name}</h3>
-          <p className="text-sm text-gray-500">{item.class}</p>
-        </div>
-      </td>
-      <td className="hidden md:table-cell">{item.studentId}</td>
-      <td className="hidden md:table-cell">{item.grade}</td>
-      <td className="hidden md:table-cell">{item?.phone}</td>
-      <td className="hidden md:table-cell">{item.address}</td>
-      <td>
-        <div className="flex items-center gap-2">
-          <Link href={`/list/students/${item.id}`}>
-            <button className="size-7 flex items-center justify-center rounded-full bg-lamaSky">
-              <Image src="/view.png" alt="view-logo" width={16} height={16} />
-            </button>
-          </Link>
+const renderRow = (item: StudentListItem) => (
+  <tr
+    key={item.id}
+    className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
+  >
+    <td className="flex items-center gap-4 p-4">
+      <Image
+        src={item.img || "/noAvatar.png"}
+        alt=""
+        width={40}
+        height={40}
+        className="md:hidden xl:block size-10 rounded-full object-cover"
+      />
+      <div className="flex flex-col">
+        <h3 className="font-semibold">{item.name}</h3>
+        <p className="text-xs text-gray-500">{item.class.name}</p>
+      </div>
+    </td>
+    <td className="hidden md:table-cell">{item.username}</td>
+    <td className="hidden md:table-cell">{item.class.name[0]}</td>
+    <td className="hidden lg:table-cell">{item.phone}</td>
+    <td className="hidden lg:table-cell">{item.address}</td>
+    <td>
+      <div className="flex items-center gap-2">
+        <Link href={`/list/students/${item.id}`}>
+          <button className="size-7 flex items-center justify-center rounded-full bg-lamaSky">
+            <Image src="/view.png" alt="" width={16} height={16} />
+          </button>
+        </Link>
+        {role === "admin" && (
+          <FormModal table="student" type="delete" id={item.id} />
+        )}
+      </div>
+    </td>
+  </tr>
+);
 
-          {role === "admin" && (
-            <FormModal table="student" type="delete" id={item.id} />
-          )}
-        </div>
-      </td>
-    </tr>
-  );
+const StudentsListPage = async ({
+  searchParams,
+}: {
+  searchParams: { [key: string]: string | undefined };
+}) => {
+  const { page, ...queryParams } = searchParams;
+  const currentPage = page ? parseInt(page, 10) : 1;
+
+  const columns = [
+    { header: "Info", accessor: "info" },
+    {
+      header: "Student ID",
+      accessor: "studentId",
+      className: "hidden md:table-cell",
+    },
+    {
+      header: "Grade",
+      accessor: "grade",
+      className: "hidden md:table-cell",
+    },
+    {
+      header: "Phone",
+      accessor: "phone",
+      className: "hidden lg:table-cell",
+    },
+    {
+      header: "Address",
+      accessor: "address",
+      className: "hidden lg:table-cell",
+    },
+    ...(role === "admin"
+      ? [{ header: "Actions", accessor: "actions" }]
+      : []),
+  ];
+
+  // Baca dan validasi filter dari URL.
+  let teacherId: string | undefined;
+  let search: string | undefined;
+
+  for (const [key, value] of Object.entries(queryParams)) {
+    if (value === undefined || value === "") continue;
+
+    switch (key) {
+      case "teacherId":
+        teacherId = value;
+        break;
+      case "search":
+        search = value.trim() || undefined;
+        break;
+      default:
+        break;
+    }
+  }
+
+  const [data, count] = await db.transaction(async (tx) => {
+    const students = tx.orm.public.Student;
+
+    // Cari kelas yang memiliki lesson dari teacher ini.
+    // Setelah itu, gunakan ID kelas untuk memfilter Student.
+    const matchingClasses =
+      teacherId === undefined
+        ? undefined
+        : await tx.orm.public.Class
+            .where((classRow) =>
+              classRow.lessons.some((lesson) =>
+                lesson.teacherId.eq(teacherId),
+              ),
+            )
+            .select("id")
+            .all();
+
+    const classIds = matchingClasses?.map((classRow) => classRow.id);
+
+    // Jika tidak ada kelas yang cocok, tidak ada Student yang cocok.
+    if (classIds?.length === 0) {
+      const noStudents: StudentListItem[] = [];
+      return [noStudents, 0] as const;
+    }
+
+    // Gunakan filter yang sama untuk mengambil data dan menghitung totalnya.
+    const studentQuery =
+      classIds !== undefined && search !== undefined
+        ? students.where((student) =>
+            and(
+              student.classId.in(classIds),
+              student.name.ilike(`%${search}%`),
+            ),
+          )
+        : classIds !== undefined
+          ? students.where((student) => student.classId.in(classIds))
+          : search !== undefined
+            ? students.where((student) =>
+                student.name.ilike(`%${search}%`),
+              )
+            : students;
+
+    const data = await studentQuery
+      .include("class")
+      .orderBy((student) => student.id.asc())
+      .limit(ITEM_PER_PAGE)
+      .offset(ITEM_PER_PAGE * (currentPage - 1))
+      .all();
+
+    const countResult = await studentQuery.aggregate((aggregate) => ({
+      totalStudents: aggregate.count(),
+    }));
+
+    return [data, countResult.totalStudents] as const;
+  });
 
   return (
     <div className="bg-white p-4 rounded-md flex-1 m-4 mt-0">
-      {/* TOP */}
       <div className="flex items-center justify-between">
         <h1 className="hidden md:block text-lg font-semibold">All Students</h1>
         <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
@@ -113,11 +185,8 @@ const StudentsListPage = () => {
         </div>
       </div>
 
-      {/* LIST */}
-      <Table columns={COLUMNS} renderRow={renderRow} data={studentsData} />
-
-      {/* PAGINATION*/}
-      <Pagination />
+      <Table columns={columns} renderRow={renderRow} data={data} />
+      <Pagination page={currentPage} count={count} />
     </div>
   );
 };

@@ -99,9 +99,9 @@ const TeachersListPage = async ({
   searchParams: { [key: string]: string | undefined };
 }) => {
   const { page, ...queryParams } = searchParams;
-  const p = page ? parseInt(page) : 1;
+  const p = page ? parseInt(page, 10) : 1;
 
-  // URL PARAMS CONDITION
+  // Read and validate filters from the URL.
   let classId: number | undefined;
   let search: string | undefined;
 
@@ -140,7 +140,7 @@ const TeachersListPage = async ({
           }
 
           if (search !== undefined) {
-            filters.push(teacher.name.ilike(`%${search}`));
+            filters.push(teacher.name.ilike(`%${search}%`));
           }
 
           if (filters.length === 1) {
