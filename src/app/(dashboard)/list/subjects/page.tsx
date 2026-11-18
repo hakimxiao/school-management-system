@@ -2,15 +2,19 @@ import FormModal from "@/components/FormModal";
 import Pagination from "@/components/Pagination";
 import Table from "@/components/Table";
 import TableSearch from "@/components/TableSearch";
-import { role, subjectsData } from "@/lib/data";
+import { role } from "@/lib/data";
 import Image from "next/image";
 import React from "react";
+import { db } from "../../../../../prisma/db";
+import { ResultType } from "@prisma/orm-postgres/components";
+import { ITEM_PER_PAGE } from "@/lib/settings";
 
-type Subject = {
-  id: number;
-  name: string;
-  teachers: string[];
-};
+const getSubjectQuery = () =>
+  db.orm.public.Subject.include("teachers", (teacherSubject) =>
+    teacherSubject.include("teacher"),
+  );
+
+type SubjectListItem = ResultType<ReturnType<typeof getSubjectQuery>>;
 
 const COLUMNS = [
   {
@@ -28,26 +32,74 @@ const COLUMNS = [
   },
 ];
 
-const SubjectsListPage = () => {
-  const renderRow = (item: Subject) => (
-    <tr
-      key={item.id}
-      className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
-    >
-      <td className="flex items-center gap-4 p-4">{item.name}</td>
-      <td className="hidden md:table-cell">{item.teachers.join(",")}</td>
-      <td>
-        <div className="flex items-center gap-2">
-          {role === "admin" && (
-            <>
-              <FormModal table="subject" type="update" data={item} />
-              <FormModal table="subject" type="delete" id={item.id} />
-            </>
-          )}
-        </div>
-      </td>
-    </tr>
-  );
+const renderRow = (item: SubjectListItem) => (
+  <tr
+    key={item.id}
+    className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
+  >
+    <td className="flex items-center gap-4 p-4">{item.name}</td>
+    <td className="hidden md:table-cell">
+      {item.teachers.map((t) => t.teacher.name).join(",")}
+    </td>
+    <td>
+      <div className="flex items-center gap-2">
+        {role === "admin" && (
+          <>
+            <FormModal table="subject" type="update" data={item} />
+            <FormModal table="subject" type="delete" id={item.id} />
+          </>
+        )}
+      </div>
+    </td>
+  </tr>
+);
+
+const SubjectsListPage = async ({
+  searchParams,
+}: {
+  searchParams: { [key: string]: string | undefined };
+}) => {
+  const { page, ...queryParams } = searchParams;
+  const p = page ? parseInt(page, 10) : 1;
+
+  let search: string | undefined;
+
+  for (const [key, value] of Object.entries(queryParams)) {
+    if (value === undefined || value === "") continue;
+
+    switch (key) {
+      case "search":
+        search = value.trim() || undefined;
+        break;
+
+      default:
+        break;
+    }
+  }
+
+  const [data, count] = await db.transaction(async (tx) => {
+    const subjects = tx.orm.public.Subject;
+    const hasFilter = search !== undefined;
+
+    const subjectsQuery = hasFilter
+      ? subjects.where((subject) => subject.name.ilike(`%${search}%`))
+      : subjects;
+
+    const data = await subjectsQuery
+      .include("teachers", (teacherSubject) =>
+        teacherSubject.include("teacher"),
+      )
+      .orderBy((subject) => subject.id.asc())
+      .limit(ITEM_PER_PAGE)
+      .offset(ITEM_PER_PAGE * (p - 1))
+      .all();
+
+    const countResult = await subjectsQuery.aggregate((agregate) => ({
+      totalSubjects: agregate.count(),
+    }));
+
+    return [data, countResult.totalSubjects] as const;
+  });
 
   return (
     <div className="bg-white p-4 rounded-md flex-1 m-4 mt-0">
@@ -74,10 +126,10 @@ const SubjectsListPage = () => {
       </div>
 
       {/* LIST */}
-      <Table columns={COLUMNS} renderRow={renderRow} data={subjectsData} />
+      <Table columns={COLUMNS} renderRow={renderRow} data={data} />
 
       {/* PAGINATION*/}
-      <Pagination />
+      <Pagination page={p} count={count} />
     </div>
   );
 };
