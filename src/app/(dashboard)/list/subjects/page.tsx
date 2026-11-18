@@ -6,7 +6,7 @@ import { role } from "@/lib/data";
 import Image from "next/image";
 import React from "react";
 import { db } from "../../../../../prisma/db";
-import { ResultType } from "@prisma/orm-postgres/components";
+import type { ResultType } from "@prisma/orm-postgres/components/runtime";
 import { ITEM_PER_PAGE } from "@/lib/settings";
 
 const getSubjectQuery = () =>

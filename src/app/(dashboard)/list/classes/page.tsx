@@ -5,14 +5,10 @@ import TableSearch from "@/components/TableSearch";
 import { classesData, role } from "@/lib/data";
 import Image from "next/image";
 import React from "react";
-
-type Class = {
-  id: number;
-  name: string;
-  capacity: number;
-  grade: number;
-  supervisor: string;
-};
+import { db } from "../../../../../prisma/db";
+import type { ResultType } from "@prisma/orm-postgres/components/runtime";
+import { and } from "@prisma/orm-postgres/orm-client";
+import { ITEM_PER_PAGE } from "@/lib/settings";
 
 const COLUMNS = [
   {
@@ -40,28 +36,102 @@ const COLUMNS = [
   },
 ];
 
-const ClassesListPage = () => {
-  const renderRow = (item: Class) => (
-    <tr
-      key={item.id}
-      className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
-    >
-      <td className="flex items-center gap-4 p-4">{item.name}</td>
-      <td className="hidden md:table-cell">{item.capacity}</td>
-      <td className="hidden md:table-cell">{item.grade}</td>
-      <td className="hidden md:table-cell">{item.supervisor}</td>
-      <td>
-        <div className="flex items-center gap-2">
-          {role === "admin" && (
-            <>
-              <FormModal table="class" type="update" data={item} />
-              <FormModal table="class" type="delete" id={item.id} />
-            </>
-          )}
-        </div>
-      </td>
-    </tr>
-  );
+const getClassesQuery = () =>
+  db.orm.public.Class.include("grade").include("supervisor");
+
+type ClassListItems = ResultType<ReturnType<typeof getClassesQuery>>;
+
+const renderRow = (item: ClassListItems) => (
+  <tr
+    key={item.id}
+    className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
+  >
+    <td className="flex items-center gap-4 p-4">{item.name}</td>
+    <td className="hidden md:table-cell">{item.capacity}</td>
+    <td className="hidden md:table-cell">{item.grade.level}</td>
+    <td className="hidden md:table-cell">{item.supervisor.name}</td>
+    <td>
+      <div className="flex items-center gap-2">
+        {role === "admin" && (
+          <>
+            <FormModal table="class" type="update" data={item} />
+            <FormModal table="class" type="delete" id={item.id} />
+          </>
+        )}
+      </div>
+    </td>
+  </tr>
+);
+
+const ClassesListPage = async ({
+  searchParams,
+}: {
+  searchParams: { [key: string]: string };
+}) => {
+  const { page, ...queryParams } = searchParams;
+  const p = page ? parseInt(page, 10) : 1;
+
+  let supervisorId: string | undefined;
+  let search: string | undefined;
+
+  for (const [key, value] of Object.entries(queryParams)) {
+    if (value === undefined || value === "") continue;
+
+    switch (key) {
+      case "supervisorId": {
+        supervisorId = value.trim() || undefined;
+        break;
+      }
+
+      case "search":
+        search = value.trim() || undefined;
+        break;
+
+      default:
+        break;
+    }
+  }
+
+  const [data, count] = await db.transaction(async (tx) => {
+    const classes = tx.orm.public.Class;
+    const hasFilters = supervisorId !== undefined || search !== undefined;
+
+    const classQuery = hasFilters
+      ? classes.where((c) => {
+          const filters = [];
+
+          if (supervisorId !== undefined) {
+            filters.push(
+              c.supervisor.some((supervsr) => supervsr.id.eq(supervisorId)),
+            );
+          }
+
+          if (search !== undefined) {
+            filters.push(c.name.ilike(`%${search}%`));
+          }
+
+          if (filters.length === 1) {
+            return filters[0];
+          }
+
+          return and(...filters);
+        })
+      : classes;
+
+    const data = await classQuery
+      .include("supervisor")
+      .include("grade")
+      .orderBy((c) => c.id.asc())
+      .limit(ITEM_PER_PAGE)
+      .offset(ITEM_PER_PAGE * (p - 1))
+      .all();
+
+    const countResult = await classQuery.aggregate((agregate) => ({
+      totalClasses: agregate.count(),
+    }));
+
+    return [data, countResult.totalClasses] as const;
+  });
 
   return (
     <div className="bg-white p-4 rounded-md flex-1 m-4 mt-0">
@@ -88,10 +158,10 @@ const ClassesListPage = () => {
       </div>
 
       {/* LIST */}
-      <Table columns={COLUMNS} renderRow={renderRow} data={classesData} />
+      <Table columns={COLUMNS} renderRow={renderRow} data={data} />
 
       {/* PAGINATION*/}
-      <Pagination />
+      <Pagination page={p} count={count} />
     </div>
   );
 };
