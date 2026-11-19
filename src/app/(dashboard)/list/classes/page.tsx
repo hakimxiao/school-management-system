@@ -2,7 +2,7 @@ import FormModal from "@/components/FormModal";
 import Pagination from "@/components/Pagination";
 import Table from "@/components/Table";
 import TableSearch from "@/components/TableSearch";
-import { classesData, role } from "@/lib/data";
+import { role } from "@/lib/data";
 import Image from "next/image";
 import React from "react";
 import { db } from "../../../../../prisma/db";

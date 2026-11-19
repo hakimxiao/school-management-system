@@ -82,9 +82,7 @@ const StudentsListPage = async ({
       accessor: "address",
       className: "hidden lg:table-cell",
     },
-    ...(role === "admin"
-      ? [{ header: "Actions", accessor: "actions" }]
-      : []),
+    ...(role === "admin" ? [{ header: "Actions", accessor: "actions" }] : []),
   ];
 
   // Baca dan validasi filter dari URL.
@@ -96,7 +94,7 @@ const StudentsListPage = async ({
 
     switch (key) {
       case "teacherId":
-        teacherId = value;
+        teacherId = value.trim();
         break;
       case "search":
         search = value.trim() || undefined;
@@ -114,12 +112,9 @@ const StudentsListPage = async ({
     const matchingClasses =
       teacherId === undefined
         ? undefined
-        : await tx.orm.public.Class
-            .where((classRow) =>
-              classRow.lessons.some((lesson) =>
-                lesson.teacherId.eq(teacherId),
-              ),
-            )
+        : await tx.orm.public.Class.where((classRow) =>
+            classRow.lessons.some((lesson) => lesson.teacherId.eq(teacherId)),
+          )
             .select("id")
             .all();
 
@@ -143,9 +138,7 @@ const StudentsListPage = async ({
         : classIds !== undefined
           ? students.where((student) => student.classId.in(classIds))
           : search !== undefined
-            ? students.where((student) =>
-                student.name.ilike(`%${search}%`),
-              )
+            ? students.where((student) => student.name.ilike(`%${search}%`))
             : students;
 
     const data = await studentQuery

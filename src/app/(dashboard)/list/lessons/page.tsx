@@ -2,17 +2,13 @@ import FormModal from "@/components/FormModal";
 import Pagination from "@/components/Pagination";
 import Table from "@/components/Table";
 import TableSearch from "@/components/TableSearch";
-import { classesData, lessonsData, role } from "@/lib/data";
+import { role } from "@/lib/data";
 import Image from "next/image";
-import Link from "next/link";
 import React from "react";
-
-type Lesson = {
-  id: number;
-  subject: string;
-  class: string;
-  teacher: string;
-};
+import type { ResultType } from "@prisma/orm-postgres/components/runtime";
+import { db } from "../../../../../prisma/db";
+import { and, or } from "@prisma/orm-postgres/orm-client";
+import { ITEM_PER_PAGE } from "@/lib/settings";
 
 const COLUMNS = [
   {
@@ -34,27 +30,121 @@ const COLUMNS = [
   },
 ];
 
-const LessonsListPage = () => {
-  const renderRow = (item: Lesson) => (
-    <tr
-      key={item.id}
-      className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
-    >
-      <td className="flex items-center gap-4 p-4">{item.subject}</td>
-      <td>{item.class}</td>
-      <td className="hidden md:table-cell">{item.teacher}</td>
-      <td>
-        <div className="flex items-center gap-2">
-          {role === "admin" && (
-            <>
-              <FormModal table="lesson" type="update" data={item} />
-              <FormModal table="lesson" type="delete" id={item.id} />
-            </>
-          )}
-        </div>
-      </td>
-    </tr>
-  );
+const getLessonsQuery = () =>
+  db.orm.public.Lesson.include("subject").include("class").include("teacher");
+
+type LessoListItem = ResultType<ReturnType<typeof getLessonsQuery>>;
+
+const renderRow = (item: LessoListItem) => (
+  <tr
+    key={item.id}
+    className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
+  >
+    <td className="flex items-center gap-4 p-4">{item.subject.name}</td>
+    <td>{item.class.name}</td>
+    <td className="hidden md:table-cell">
+      {item.teacher.name + " " + item.teacher.username}
+    </td>
+    <td>
+      <div className="flex items-center gap-2">
+        {role === "admin" && (
+          <>
+            <FormModal table="lesson" type="update" data={item} />
+            <FormModal table="lesson" type="delete" id={item.id} />
+          </>
+        )}
+      </div>
+    </td>
+  </tr>
+);
+
+const LessonsListPage = async ({
+  searchParams,
+}: {
+  searchParams: { [key: string]: string };
+}) => {
+  const { page, ...queryParams } = searchParams;
+  const p = page ? parseInt(page, 10) : 1;
+
+  let classId: number | undefined;
+  let teacherId: string | undefined;
+  let search: string | undefined;
+
+  for (const [key, value] of Object.entries(queryParams)) {
+    if (value === undefined || value === "") continue;
+
+    switch (key) {
+      case "classId": {
+        const parsed = Number(value);
+
+        if (Number.isInteger(parsed)) classId = parsed;
+        break;
+      }
+
+      case "teacherId": {
+        teacherId = value.trim() || undefined;
+        break;
+      }
+
+      case "search": {
+        search = value.trim() || undefined;
+        break;
+      }
+
+      default:
+        break;
+    }
+  }
+
+  const [data, count] = await db.transaction(async (tx) => {
+    const lessons = tx.orm.public.Lesson;
+    const hasFilters =
+      classId !== undefined || teacherId !== undefined || search !== undefined;
+
+    const lessonQuery = hasFilters
+      ? lessons.where((lesson) => {
+          const filters = [];
+
+          if (classId !== undefined) {
+            filters.push(lesson.class.some((c) => c.id.eq(classId)));
+          }
+
+          if (teacherId !== undefined) {
+            filters.push(lesson.teacher.some((t) => t.id.eq(teacherId)));
+          }
+
+          if (search !== undefined) {
+            filters.push(
+              or(
+                lesson.name.ilike(`%${search}%`),
+                lesson.teacher.some((t) => t.name.ilike(`%${search}%`)),
+              ),
+            );
+          }
+
+          if (filters.length === 1) {
+            return filters[0];
+          }
+
+          return and(...filters);
+        })
+      : lessons;
+
+    const data = await lessonQuery
+      .include("subject")
+      .include("class")
+      .include("teacher")
+      .orderBy((l) => l.id.asc())
+      .limit(ITEM_PER_PAGE)
+      .offset(ITEM_PER_PAGE * (p - 1))
+      .all();
+
+    const countResult = await lessonQuery.aggregate((agregate) => ({
+      totalLesson: agregate.count(),
+    }));
+
+    return [data, countResult.totalLesson] as const;
+  });
 
   return (
     <div className="bg-white p-4 rounded-md flex-1 m-4 mt-0">
@@ -81,10 +171,10 @@ const LessonsListPage = () => {
       </div>
 
       {/* LIST */}
-      <Table columns={COLUMNS} renderRow={renderRow} data={lessonsData} />
+      <Table columns={COLUMNS} renderRow={renderRow} data={data} />
 
       {/* PAGINATION*/}
-      <Pagination />
+      <Pagination page={p} count={count} />
     </div>
   );
 };
