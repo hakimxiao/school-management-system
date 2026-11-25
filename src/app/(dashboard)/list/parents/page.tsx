@@ -6,8 +6,9 @@ import { role } from "@/lib/data";
 import Image from "next/image";
 import React from "react";
 import { db } from "../../../../../prisma/db";
-import { ResultType } from "@prisma/orm-postgres/components";
-import { ITEM_PER_PAGE } from "@/lib/settings";
+import type { ResultType } from "@prisma/orm-postgres/components/runtime";
+import { getPageNumber, ITEM_PER_PAGE } from "@/lib/settings";
+import { or } from "@prisma/orm-postgres/orm-client";
 
 const getParentQuery = () => db.orm.public.Parent.include("students");
 
@@ -52,7 +53,9 @@ const renderRow = (item: ParentListItem) => (
       </div>
     </td>
     <td className="hidden md:table-cell">
-      {item.students.map((student) => student.name).join(",")}
+      {item.students
+        .map((student) => `${student.name} ${student.surname}`)
+        .join(", ")}
     </td>
     <td className="hidden md:table-cell">{item?.phone}</td>
     <td className="hidden md:table-cell">{item.address}</td>
@@ -76,7 +79,7 @@ const ParentsListPage = async ({
   searchParams: { [key: string]: string | undefined };
 }) => {
   const { page, ...queryParams } = searchParams;
-  const p = page ? parseInt(page, 10) : 1;
+  const p = getPageNumber(page);
 
   let search: string | undefined;
 
@@ -98,7 +101,13 @@ const ParentsListPage = async ({
     const hasFilter = search !== undefined;
 
     const parentsQuery = hasFilter
-      ? parents.where((parent) => parent.name.ilike(`%${search}%`))
+      ? parents.where((parent) =>
+          or(
+            parent.name.ilike(`%${search}%`),
+            parent.surname.ilike(`%${search}%`),
+            parent.email.ilike(`%${search}%`),
+          ),
+        )
       : parents;
 
     const data = await parentsQuery
@@ -108,8 +117,8 @@ const ParentsListPage = async ({
       .offset(ITEM_PER_PAGE * (p - 1))
       .all();
 
-    const countResult = await parentsQuery.aggregate((agregate) => ({
-      totalParents: agregate.count(),
+    const countResult = await parentsQuery.aggregate((aggregate) => ({
+      totalParents: aggregate.count(),
     }));
 
     return [data, countResult.totalParents] as const;

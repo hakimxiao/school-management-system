@@ -1,26 +1,16 @@
 import Pagination from "@/components/Pagination";
 import Table from "@/components/Table";
 import TableSearch from "@/components/TableSearch";
-import { resultsData, role } from "@/lib/data";
+import { getPageNumber, ITEM_PER_PAGE } from "@/lib/settings";
 import Image from "next/image";
-import Link from "next/link";
-import React from "react";
-
-type Result = {
-  id: string;
-  subject: string;
-  class: string;
-  teacher: string;
-  student: string;
-  type: "exam" | "assignment";
-  date: string;
-  score: number;
-};
+import { db } from "../../../../../prisma/db";
+import type { ResultType } from "@prisma/orm-postgres/components/runtime";
+import { and, or } from "@prisma/orm-postgres/orm-client";
 
 const COLUMNS = [
   {
-    header: "Subject",
-    accessor: "subject",
+    header: "Title",
+    accessor: "title",
   },
   {
     header: "Student",
@@ -41,58 +31,150 @@ const COLUMNS = [
     accessor: "class",
     className: "hidden md:table-cell",
   },
-
   {
     header: "Date",
-    accessor: "daate",
+    accessor: "date",
     className: "hidden md:table-cell",
-  },
-  {
-    header: "Actions",
-    accessor: "actions",
   },
 ];
 
-const ResultsListPage = () => {
-  const renderRow = (item: Result) => (
+const getResultsQuery = () =>
+  db.orm.public.Result.include("student")
+    .include("exam", (exam) =>
+      exam.include("lesson", (lesson) =>
+        lesson.include("class").include("teacher"),
+      ),
+    )
+    .include("assignment", (assignment) =>
+      assignment.include("lesson", (lesson) =>
+        lesson.include("class").include("teacher"),
+      ),
+    );
+
+type ResultListItem = ResultType<ReturnType<typeof getResultsQuery>>;
+
+const renderRow = (item: ResultListItem) => {
+  const assessment = item.exam ?? item.assignment;
+  const lesson = assessment?.lesson;
+  const teacher = lesson?.teacher;
+  const assessmentDate = item.exam?.startTime ?? item.assignment?.startDate;
+
+  return (
     <tr
       key={item.id}
       className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
     >
-      <td className="flex items-center gap-4 p-4">{item.subject}</td>
-      <td>{item.student}</td>
+      <td className="flex items-center gap-4 p-4">
+        {assessment?.title ?? "—"}
+      </td>
+      <td>{item.student.name + " " + item.student.surname}</td>
       <td className="hidden md:table-cell">{item.score}</td>
-      <td className="hidden md:table-cell">{item.teacher}</td>
-      <td className="hidden md:table-cell">{item.class}</td>
-      <td className="hidden md:table-cell">{item.date}</td>
-      <td>
-        <div className="flex items-center gap-2">
-          <Link href={`/list/ressults/${item.id}`}>
-            <button className="size-7 flex items-center justify-center rounded-full bg-lamaSky">
-              <Image src="/edit.png" alt="edit-logo" width={16} height={16} />
-            </button>
-          </Link>
-
-          {role === "admin" && (
-            <button className="size-7 flex items-center justify-center rounded-full bg-lamaPurple">
-              <Image
-                src="/delete.png"
-                alt="delete-logo"
-                width={16}
-                height={16}
-              />
-            </button>
-          )}
-        </div>
+      <td className="hidden md:table-cell">
+        {teacher ? `${teacher.name} ${teacher.surname}` : "—"}
+      </td>
+      <td className="hidden md:table-cell">{lesson?.class.name ?? "—"}</td>
+      <td className="hidden md:table-cell">
+        {assessmentDate
+          ? new Intl.DateTimeFormat("id-ID").format(assessmentDate)
+          : "—"}
       </td>
     </tr>
   );
+};
+
+const ResultsListPage = async ({
+  searchParams,
+}: {
+  searchParams: { [key: string]: string | undefined };
+}) => {
+  const { page, ...queryParams } = searchParams;
+  const currentPage = getPageNumber(page);
+
+  let studentId: string | undefined;
+  let search: string | undefined;
+
+  for (const [key, value] of Object.entries(queryParams)) {
+    if (value === undefined || value === "") continue;
+
+    switch (key) {
+      case "studentId":
+        studentId = value.trim() || undefined;
+        break;
+      case "search":
+        search = value.trim() || undefined;
+        break;
+      default:
+        break;
+    }
+  }
+
+  const [data, count] = await db.transaction(async (tx) => {
+    const results = tx.orm.public.Result;
+    const hasFilters = studentId !== undefined || search !== undefined;
+
+    const resultsQuery = hasFilters
+      ? results.where((result) => {
+          const filters = [];
+
+          if (studentId !== undefined) {
+            filters.push(result.studentId.eq(studentId));
+          }
+
+          if (search !== undefined) {
+            filters.push(
+              or(
+                result.exam.some((exam) =>
+                  exam.title.ilike(`%${search}%`),
+                ),
+                result.assignment.some((assignment) =>
+                  assignment.title.ilike(`%${search}%`),
+                ),
+                result.student.some((student) =>
+                  or(
+                    student.name.ilike(`%${search}%`),
+                    student.surname.ilike(`%${search}%`),
+                  ),
+                ),
+              ),
+            );
+          }
+
+          if (filters.length === 1) {
+            return filters[0];
+          }
+
+          return and(...filters);
+        })
+      : results;
+
+    const data = await resultsQuery
+      .include("student")
+      .include("exam", (exam) =>
+        exam.include("lesson", (lesson) =>
+          lesson.include("class").include("teacher"),
+        ),
+      )
+      .include("assignment", (assignment) =>
+        assignment.include("lesson", (lesson) =>
+          lesson.include("class").include("teacher"),
+        ),
+      )
+      .orderBy((result) => result.id.asc())
+      .limit(ITEM_PER_PAGE)
+      .offset(ITEM_PER_PAGE * (currentPage - 1))
+      .all();
+
+    const countResult = await resultsQuery.aggregate((aggregate) => ({
+      totalResults: aggregate.count(),
+    }));
+
+    return [data, countResult.totalResults] as const;
+  });
 
   return (
     <div className="bg-white p-4 rounded-md flex-1 m-4 mt-0">
-      {/* TOP */}
       <div className="flex items-center justify-between">
-        <h1 className="hidden md:block text-lg font-semibold">All Ressults</h1>
+        <h1 className="hidden md:block text-lg font-semibold">All Results</h1>
         <div className="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto">
           <TableSearch />
           <div className="flex items-center gap-4 self-end">
@@ -107,20 +189,12 @@ const ResultsListPage = () => {
             <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
               <Image src="/sort.png" alt="sort-icon" width={14} height={14} />
             </button>
-            {role === "admin" && (
-              <button className="w-8 h-8 flex items-center justify-center rounded-full bg-lamaYellow">
-                <Image src="/plus.png" alt="plus-icon" width={14} height={14} />
-              </button>
-            )}
           </div>
         </div>
       </div>
 
-      {/* LIST */}
-      <Table columns={COLUMNS} renderRow={renderRow} data={resultsData} />
-
-      {/* PAGINATION*/}
-      <Pagination />
+      <Table columns={COLUMNS} renderRow={renderRow} data={data} />
+      <Pagination page={currentPage} count={count} />
     </div>
   );
 };

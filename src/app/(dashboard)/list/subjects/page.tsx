@@ -7,7 +7,7 @@ import Image from "next/image";
 import React from "react";
 import { db } from "../../../../../prisma/db";
 import type { ResultType } from "@prisma/orm-postgres/components/runtime";
-import { ITEM_PER_PAGE } from "@/lib/settings";
+import { getPageNumber, ITEM_PER_PAGE } from "@/lib/settings";
 
 const getSubjectQuery = () =>
   db.orm.public.Subject.include("teachers", (teacherSubject) =>
@@ -39,7 +39,12 @@ const renderRow = (item: SubjectListItem) => (
   >
     <td className="flex items-center gap-4 p-4">{item.name}</td>
     <td className="hidden md:table-cell">
-      {item.teachers.map((t) => t.teacher.name).join(",")}
+      {item.teachers
+        .map(
+          (teacherSubject) =>
+            `${teacherSubject.teacher.name} ${teacherSubject.teacher.surname}`,
+        )
+        .join(", ")}
     </td>
     <td>
       <div className="flex items-center gap-2">
@@ -60,7 +65,7 @@ const SubjectsListPage = async ({
   searchParams: { [key: string]: string | undefined };
 }) => {
   const { page, ...queryParams } = searchParams;
-  const p = page ? parseInt(page, 10) : 1;
+  const p = getPageNumber(page);
 
   let search: string | undefined;
 
@@ -94,8 +99,8 @@ const SubjectsListPage = async ({
       .offset(ITEM_PER_PAGE * (p - 1))
       .all();
 
-    const countResult = await subjectsQuery.aggregate((agregate) => ({
-      totalSubjects: agregate.count(),
+    const countResult = await subjectsQuery.aggregate((aggregate) => ({
+      totalSubjects: aggregate.count(),
     }));
 
     return [data, countResult.totalSubjects] as const;

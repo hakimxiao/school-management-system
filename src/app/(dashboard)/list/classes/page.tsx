@@ -8,7 +8,7 @@ import React from "react";
 import { db } from "../../../../../prisma/db";
 import type { ResultType } from "@prisma/orm-postgres/components/runtime";
 import { and } from "@prisma/orm-postgres/orm-client";
-import { ITEM_PER_PAGE } from "@/lib/settings";
+import { getPageNumber, ITEM_PER_PAGE } from "@/lib/settings";
 
 const COLUMNS = [
   {
@@ -49,7 +49,9 @@ const renderRow = (item: ClassListItems) => (
     <td className="flex items-center gap-4 p-4">{item.name}</td>
     <td className="hidden md:table-cell">{item.capacity}</td>
     <td className="hidden md:table-cell">{item.grade.level}</td>
-    <td className="hidden md:table-cell">{item.supervisor.name}</td>
+    <td className="hidden md:table-cell">
+      {item.supervisor.name + " " + item.supervisor.surname}
+    </td>
     <td>
       <div className="flex items-center gap-2">
         {role === "admin" && (
@@ -69,7 +71,7 @@ const ClassesListPage = async ({
   searchParams: { [key: string]: string };
 }) => {
   const { page, ...queryParams } = searchParams;
-  const p = page ? parseInt(page, 10) : 1;
+  const p = getPageNumber(page);
 
   let supervisorId: string | undefined;
   let search: string | undefined;
@@ -126,8 +128,8 @@ const ClassesListPage = async ({
       .offset(ITEM_PER_PAGE * (p - 1))
       .all();
 
-    const countResult = await classQuery.aggregate((agregate) => ({
-      totalClasses: agregate.count(),
+    const countResult = await classQuery.aggregate((aggregate) => ({
+      totalClasses: aggregate.count(),
     }));
 
     return [data, countResult.totalClasses] as const;

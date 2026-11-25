@@ -5,15 +5,15 @@ import TableSearch from "@/components/TableSearch";
 import { role } from "@/lib/data";
 import Image from "next/image";
 import React from "react";
-import { and } from "@prisma/orm-postgres/orm-client";
+import { and, or } from "@prisma/orm-postgres/orm-client";
 import type { ResultType } from "@prisma/orm-postgres/components/runtime";
 import { db } from "../../../../../prisma/db";
-import { ITEM_PER_PAGE } from "@/lib/settings";
+import { getPageNumber, ITEM_PER_PAGE } from "@/lib/settings";
 
 const COLUMNS = [
   {
-    header: "Subject",
-    accessor: "subject",
+    header: "Exam",
+    accessor: "exam",
   },
   {
     header: "Class",
@@ -48,11 +48,11 @@ const renderRow = (item: ExamListItem) => (
     className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
   >
     <td className="flex items-center gap-4 p-4">
-      {item.lesson?.subject.name ?? "—"}
+      {item.title}
     </td>
     <td>{item.lesson?.class.name ?? "—"}</td>
     <td className="hidden md:table-cell">
-      {item.lesson?.teacher.surname ?? "—"}
+      {item.lesson ? `${item.lesson.teacher.name} ${item.lesson.teacher.surname}` : "-"}
     </td>
     <td className="hidden md:table-cell">
       {new Intl.DateTimeFormat("id-ID").format(item.startTime)}
@@ -76,7 +76,7 @@ const ExamsListPage = async ({
   searchParams: { [key: string]: string };
 }) => {
   const { page, ...queryParams } = searchParams;
-  const p = page ? parseInt(page, 10) : 1;
+  const p = getPageNumber(page);
 
   let classId: number | undefined;
   let teacherId: string | undefined;
@@ -126,8 +126,13 @@ const ExamsListPage = async ({
 
           if (search !== undefined) {
             filters.push(
-              exam.lesson.some((s) =>
-                s.subject.some((subject) => subject.name.ilike(`%${search}%`)),
+              or(
+                exam.title.ilike(`%${search}%`),
+                exam.lesson.some((lesson) =>
+                  lesson.subject.some((subject) =>
+                    subject.name.ilike(`%${search}%`),
+                  ),
+                ),
               ),
             );
           }
@@ -149,8 +154,8 @@ const ExamsListPage = async ({
       .offset(ITEM_PER_PAGE * (p - 1))
       .all();
 
-    const countResult = await examQuery.aggregate((agregate) => ({
-      totalExam: agregate.count(),
+    const countResult = await examQuery.aggregate((aggregate) => ({
+      totalExam: aggregate.count(),
     }));
 
     return [data, countResult.totalExam] as const;

@@ -7,8 +7,8 @@ import Link from "next/link";
 import { role } from "@/lib/data";
 import { db } from "../../../../../prisma/db";
 import type { ResultType } from "@prisma/orm-postgres/components/runtime";
-import { ITEM_PER_PAGE } from "@/lib/settings";
-import { and } from "@prisma/orm-postgres/orm-client";
+import { getPageNumber, ITEM_PER_PAGE } from "@/lib/settings";
+import { and, or } from "@prisma/orm-postgres/orm-client";
 
 const COLUMNS = [
   {
@@ -49,7 +49,9 @@ const COLUMNS = [
 const getTeachersQuery = () =>
   db.orm.public.Teacher.include("subjects", (teacherSubjects) =>
     teacherSubjects.include("subject"),
-  ).include("classes");
+  )
+    .include("classes")
+    .include("lessons", (lesson) => lesson.include("class"));
 
 type TeacherListItem = ResultType<ReturnType<typeof getTeachersQuery>>;
 
@@ -67,7 +69,9 @@ const renderRow = (item: TeacherListItem) => (
         className="md:hidden xl:block size-10 rounded-full object-cover"
       />
       <div className="flex flex-col">
-        <h3 className="font-semibold">{item.name}</h3>
+        <h3 className="font-semibold">
+          {item.name} {item.surname}
+        </h3>
         <p className="text-sm text-gray-500">{item?.email}</p>
       </div>
     </td>
@@ -76,7 +80,9 @@ const renderRow = (item: TeacherListItem) => (
       {item.subjects.map((s) => s.subject.name).join(",")}
     </td>
     <td className="hidden md:table-cell">
-      {item.classes.map((c) => c.name).join(",")}
+      {Array.from(new Set(item.lessons.map((lesson) => lesson.class.name))).join(
+        ", ",
+      )}
     </td>
     <td className="hidden md:table-cell">{item.phone}</td>
     <td className="hidden md:table-cell">{item.address}</td>
@@ -99,7 +105,7 @@ const TeachersListPage = async ({
   searchParams: { [key: string]: string | undefined };
 }) => {
   const { page, ...queryParams } = searchParams;
-  const p = page ? parseInt(page, 10) : 1;
+  const p = getPageNumber(page);
 
   // Read and validate filters from the URL.
   let classId: number | undefined;
@@ -140,7 +146,14 @@ const TeachersListPage = async ({
           }
 
           if (search !== undefined) {
-            filters.push(teacher.name.ilike(`%${search}%`));
+            filters.push(
+              or(
+                teacher.name.ilike(`%${search}%`),
+                teacher.surname.ilike(`%${search}%`),
+                teacher.username.ilike(`%${search}%`),
+                teacher.email.ilike(`%${search}%`),
+              ),
+            );
           }
 
           if (filters.length === 1) {
@@ -156,6 +169,7 @@ const TeachersListPage = async ({
         teacherSubjects.include("subject"),
       )
       .include("classes")
+      .include("lessons", (lesson) => lesson.include("class"))
       .orderBy((teacher) => teacher.id.asc())
       .limit(ITEM_PER_PAGE)
       .offset(ITEM_PER_PAGE * (p - 1))

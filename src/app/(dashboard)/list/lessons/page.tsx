@@ -8,7 +8,7 @@ import React from "react";
 import type { ResultType } from "@prisma/orm-postgres/components/runtime";
 import { db } from "../../../../../prisma/db";
 import { and, or } from "@prisma/orm-postgres/orm-client";
-import { ITEM_PER_PAGE } from "@/lib/settings";
+import { getPageNumber, ITEM_PER_PAGE } from "@/lib/settings";
 
 const COLUMNS = [
   {
@@ -33,9 +33,9 @@ const COLUMNS = [
 const getLessonsQuery = () =>
   db.orm.public.Lesson.include("subject").include("class").include("teacher");
 
-type LessoListItem = ResultType<ReturnType<typeof getLessonsQuery>>;
+type LessonListItem = ResultType<ReturnType<typeof getLessonsQuery>>;
 
-const renderRow = (item: LessoListItem) => (
+const renderRow = (item: LessonListItem) => (
   <tr
     key={item.id}
     className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
@@ -43,7 +43,7 @@ const renderRow = (item: LessoListItem) => (
     <td className="flex items-center gap-4 p-4">{item.subject.name}</td>
     <td>{item.class.name}</td>
     <td className="hidden md:table-cell">
-      {item.teacher.name + " " + item.teacher.username}
+      {item.teacher.name + " " + item.teacher.surname}
     </td>
     <td>
       <div className="flex items-center gap-2">
@@ -64,7 +64,7 @@ const LessonsListPage = async ({
   searchParams: { [key: string]: string };
 }) => {
   const { page, ...queryParams } = searchParams;
-  const p = page ? parseInt(page, 10) : 1;
+  const p = getPageNumber(page);
 
   let classId: number | undefined;
   let teacherId: string | undefined;
@@ -117,7 +117,15 @@ const LessonsListPage = async ({
             filters.push(
               or(
                 lesson.name.ilike(`%${search}%`),
-                lesson.teacher.some((t) => t.name.ilike(`%${search}%`)),
+                lesson.subject.some((subject) =>
+                  subject.name.ilike(`%${search}%`),
+                ),
+                lesson.teacher.some((teacher) =>
+                  or(
+                    teacher.name.ilike(`%${search}%`),
+                    teacher.surname.ilike(`%${search}%`),
+                  ),
+                ),
               ),
             );
           }
@@ -139,8 +147,8 @@ const LessonsListPage = async ({
       .offset(ITEM_PER_PAGE * (p - 1))
       .all();
 
-    const countResult = await lessonQuery.aggregate((agregate) => ({
-      totalLesson: agregate.count(),
+    const countResult = await lessonQuery.aggregate((aggregate) => ({
+      totalLesson: aggregate.count(),
     }));
 
     return [data, countResult.totalLesson] as const;

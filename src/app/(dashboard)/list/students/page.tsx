@@ -3,15 +3,16 @@ import Pagination from "@/components/Pagination";
 import Table from "@/components/Table";
 import TableSearch from "@/components/TableSearch";
 import { role } from "@/lib/data";
-import { ITEM_PER_PAGE } from "@/lib/settings";
+import { getPageNumber, ITEM_PER_PAGE } from "@/lib/settings";
 import Image from "next/image";
 import Link from "next/link";
 import { db } from "../../../../../prisma/db";
 import type { ResultType } from "@prisma/orm-postgres/components/runtime";
-import { and } from "@prisma/orm-postgres/orm-client";
+import { and, or } from "@prisma/orm-postgres/orm-client";
 
 // Query ini menentukan relasi yang dibutuhkan setiap baris tabel.
-const getStudentsQuery = () => db.orm.public.Student.include("class");
+const getStudentsQuery = () =>
+  db.orm.public.Student.include("class").include("grade");
 
 type StudentListItem = ResultType<ReturnType<typeof getStudentsQuery>>;
 
@@ -29,12 +30,14 @@ const renderRow = (item: StudentListItem) => (
         className="md:hidden xl:block size-10 rounded-full object-cover"
       />
       <div className="flex flex-col">
-        <h3 className="font-semibold">{item.name}</h3>
+        <h3 className="font-semibold">
+          {item.name} {item.surname}
+        </h3>
         <p className="text-xs text-gray-500">{item.class.name}</p>
       </div>
     </td>
     <td className="hidden md:table-cell">{item.username}</td>
-    <td className="hidden md:table-cell">{item.class.name[0]}</td>
+    <td className="hidden md:table-cell">{item.grade.level}</td>
     <td className="hidden lg:table-cell">{item.phone}</td>
     <td className="hidden lg:table-cell">{item.address}</td>
     <td>
@@ -58,7 +61,7 @@ const StudentsListPage = async ({
   searchParams: { [key: string]: string | undefined };
 }) => {
   const { page, ...queryParams } = searchParams;
-  const currentPage = page ? parseInt(page, 10) : 1;
+  const currentPage = getPageNumber(page);
 
   const columns = [
     { header: "Info", accessor: "info" },
@@ -94,7 +97,7 @@ const StudentsListPage = async ({
 
     switch (key) {
       case "teacherId":
-        teacherId = value.trim();
+        teacherId = value.trim() || undefined;
         break;
       case "search":
         search = value.trim() || undefined;
@@ -127,22 +130,36 @@ const StudentsListPage = async ({
     }
 
     // Gunakan filter yang sama untuk mengambil data dan menghitung totalnya.
-    const studentQuery =
-      classIds !== undefined && search !== undefined
-        ? students.where((student) =>
-            and(
-              student.classId.in(classIds),
-              student.name.ilike(`%${search}%`),
-            ),
-          )
-        : classIds !== undefined
-          ? students.where((student) => student.classId.in(classIds))
-          : search !== undefined
-            ? students.where((student) => student.name.ilike(`%${search}%`))
-            : students;
+    const hasFilters = classIds !== undefined || search !== undefined;
+    const studentQuery = hasFilters
+      ? students.where((student) => {
+          const filters = [];
+
+          if (classIds !== undefined) {
+            filters.push(student.classId.in(classIds));
+          }
+
+          if (search !== undefined) {
+            filters.push(
+              or(
+                student.name.ilike(`%${search}%`),
+                student.surname.ilike(`%${search}%`),
+                student.username.ilike(`%${search}%`),
+              ),
+            );
+          }
+
+          if (filters.length === 1) {
+            return filters[0];
+          }
+
+          return and(...filters);
+        })
+      : students;
 
     const data = await studentQuery
       .include("class")
+      .include("grade")
       .orderBy((student) => student.id.asc())
       .limit(ITEM_PER_PAGE)
       .offset(ITEM_PER_PAGE * (currentPage - 1))

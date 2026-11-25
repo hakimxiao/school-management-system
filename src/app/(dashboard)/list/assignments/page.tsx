@@ -6,13 +6,13 @@ import { role } from "@/lib/data";
 import Image from "next/image";
 import type { ResultType } from "@prisma/orm-postgres/components/runtime";
 import { db } from "../../../../../prisma/db";
-import { and } from "@prisma/orm-postgres/orm-client";
-import { ITEM_PER_PAGE } from "@/lib/settings";
+import { and, or } from "@prisma/orm-postgres/orm-client";
+import { getPageNumber, ITEM_PER_PAGE } from "@/lib/settings";
 
 const COLUMNS = [
   {
-    header: "Subject",
-    accessor: "subject",
+    header: "Assignment",
+    accessor: "assignment",
   },
   {
     header: "Class",
@@ -46,7 +46,7 @@ const renderRow = (item: AssignmentListItem) => (
     key={item.id}
     className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
   >
-    <td className="flex items-center gap-4 p-4">{item.lesson?.name}</td>
+    <td className="flex items-center gap-4 p-4">{item.title}</td>
     <td>{item.lesson?.class.name}</td>
     <td className="hidden md:table-cell">
       {item.lesson?.teacher.name + " " + item.lesson?.teacher.surname}
@@ -73,7 +73,7 @@ const AssignmentsListPage = async ({
   searchParams: { [key: string]: string };
 }) => {
   const { page, ...queryParams } = searchParams;
-  const p = page ? parseInt(page, 10) : 1;
+  const p = getPageNumber(page);
 
   let classId: number | undefined;
   let teacherId: string | undefined;
@@ -126,7 +126,12 @@ const AssignmentsListPage = async ({
 
           if (search !== undefined) {
             filters.push(
-              assignment.lesson.some((s) => s.name.ilike(`%${search}%`)),
+              or(
+                assignment.title.ilike(`%${search}%`),
+                assignment.lesson.some((lesson) =>
+                  lesson.name.ilike(`%${search}%`),
+                ),
+              ),
             );
           }
 
@@ -147,8 +152,8 @@ const AssignmentsListPage = async ({
       .offset(ITEM_PER_PAGE * (p - 1))
       .all();
 
-    const countResult = await assignmentQuery.aggregate((agregate) => ({
-      totalAssignments: agregate.count(),
+    const countResult = await assignmentQuery.aggregate((aggregate) => ({
+      totalAssignments: aggregate.count(),
     }));
 
     return [data, countResult.totalAssignments] as const;
