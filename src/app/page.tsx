@@ -1,7 +1,13 @@
-const Homepage = () => {
-  return (
-    <div className=''>Homepage</div>
-  )
+import { auth } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
+
+export default async function HomePage() {
+  const { userId } = await auth();
+
+  if (userId) {
+    redirect("/admin");
+  }
+
+  redirect("/sign-in");
 }
 
-export default Homepage

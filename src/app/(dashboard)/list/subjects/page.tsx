@@ -62,9 +62,9 @@ const renderRow = (item: SubjectListItem) => (
 const SubjectsListPage = async ({
   searchParams,
 }: {
-  searchParams: { [key: string]: string | undefined };
+  searchParams: Promise<{ [key: string]: string | undefined }>;
 }) => {
-  const { page, ...queryParams } = searchParams;
+  const { page, ...queryParams } = await searchParams;
   const p = getPageNumber(page);
 
   let search: string | undefined;

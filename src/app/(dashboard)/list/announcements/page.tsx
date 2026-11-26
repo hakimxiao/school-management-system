@@ -64,9 +64,9 @@ const renderRow = (item: AnnouncementsListItem) => (
 const AnnouncementsListPage = async ({
   searchParams,
 }: {
-  searchParams: { [key: string]: string };
+  searchParams: Promise<{ [key: string]: string | undefined }>;
 }) => {
-  const { page, ...queryParams } = searchParams;
+  const { page, ...queryParams } = await searchParams;
   const currentPage = getPageNumber(page);
 
   let search: string | undefined;

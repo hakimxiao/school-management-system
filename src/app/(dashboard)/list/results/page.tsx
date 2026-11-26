@@ -85,9 +85,9 @@ const renderRow = (item: ResultListItem) => {
 const ResultsListPage = async ({
   searchParams,
 }: {
-  searchParams: { [key: string]: string | undefined };
+  searchParams: Promise<{ [key: string]: string | undefined }>;
 }) => {
-  const { page, ...queryParams } = searchParams;
+  const { page, ...queryParams } = await searchParams;
   const currentPage = getPageNumber(page);
 
   let studentId: string | undefined;
