@@ -163,7 +163,10 @@ const SingleStudentPage = () => {
             >
               Student&apos;s Assignments
             </Link>
-            <Link href="/" className="p-3 rounded-md bg-lamaYellowLight">
+            <Link
+              href={`/list/results?studentId=${"student2"}`}
+              className="p-3 rounded-md bg-lamaYellowLight"
+            >
               Student&apos;s Results
             </Link>
           </div>
