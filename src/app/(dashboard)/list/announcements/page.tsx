@@ -2,17 +2,13 @@ import FormModal from "@/components/FormModal";
 import Pagination from "@/components/Pagination";
 import Table from "@/components/Table";
 import TableSearch from "@/components/TableSearch";
-import { announcementsData, role } from "@/lib/data";
+import { role } from "@/lib/data";
 import Image from "next/image";
-import Link from "next/link";
 import React from "react";
-
-type Announcement = {
-  id: number;
-  title: string;
-  class: string;
-  date: string;
-};
+import { db } from "../../../../../prisma/db";
+import { ResultType } from "@prisma/orm-postgres/components";
+import { getPageNumber, ITEM_PER_PAGE } from "@/lib/settings";
+import { and } from "@prisma/orm-postgres/orm-client";
 
 const COLUMNS = [
   {
@@ -35,28 +31,96 @@ const COLUMNS = [
   },
 ];
 
-const AnnouncementsListPage = () => {
-  const renderRow = (item: Announcement) => (
-    <tr
-      key={item.id}
-      className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
-    >
-      <td className="flex items-center gap-4 p-4">{item.title}</td>
-      <td>{item.class}</td>
-      <td className="hidden md:table-cell">{item.date}</td>
+const getAnnouncementsQuery = () => db.orm.public.Announcement.include("class");
 
-      <td>
-        <div className="flex items-center gap-2">
-          {role === "admin" && (
-            <>
-              <FormModal table="announcement" type="delete" data={item} />
-              <FormModal table="announcement" type="delete" id={item.id} />
-            </>
-          )}
-        </div>
-      </td>
-    </tr>
-  );
+type AnnouncementsListItem = ResultType<
+  ReturnType<typeof getAnnouncementsQuery>
+>;
+
+const renderRow = (item: AnnouncementsListItem) => (
+  <tr
+    key={item.id}
+    className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
+  >
+    <td className="flex items-center gap-4 p-4">{item.title}</td>
+    <td>{item.class?.name || "-"}</td>
+    <td className="hidden md:table-cell">
+      {new Intl.DateTimeFormat("id-ID").format(item.date)}
+    </td>
+
+    <td>
+      <div className="flex items-center gap-2">
+        {role === "admin" && (
+          <>
+            <FormModal table="announcement" type="delete" data={item} />
+            <FormModal table="announcement" type="delete" id={item.id} />
+          </>
+        )}
+      </div>
+    </td>
+  </tr>
+);
+
+const AnnouncementsListPage = async ({
+  searchParams,
+}: {
+  searchParams: { [key: string]: string };
+}) => {
+  const { page, ...queryParams } = searchParams;
+  const currentPage = getPageNumber(page);
+
+  let search: string | undefined;
+
+  for (const [key, value] of Object.entries(queryParams)) {
+    if (value === undefined || value === "") continue;
+
+    switch (key) {
+      case "search": {
+        search = value.trim() || undefined;
+
+        break;
+      }
+
+      default:
+        break;
+    }
+  }
+
+  const [data, count] = await db.transaction(async (tx) => {
+    const announcements = tx.orm.public.Announcement;
+    const hasFilters = search !== undefined;
+
+    const announcementsQuery = hasFilters
+      ? announcements.where((announcement) => {
+          const filters = [];
+
+          if (search !== undefined) {
+            filters.push(announcement.title.ilike(`%${search}%`));
+          }
+
+          if (filters.length === 1) {
+            return filters[0];
+          }
+
+          return and(...filters);
+        })
+      : announcements;
+
+    const data = await announcementsQuery
+      .include("class")
+      .orderBy((announcecment) => announcecment.id.asc())
+      .limit(ITEM_PER_PAGE)
+      .offset(ITEM_PER_PAGE * (currentPage - 1))
+      .all();
+
+    const countAnnouncements = await announcementsQuery.aggregate(
+      (agregate) => ({
+        countAnnouncements: agregate.count(),
+      }),
+    );
+
+    return [data, countAnnouncements.countAnnouncements] as const;
+  });
 
   return (
     <div className="bg-white p-4 rounded-md flex-1 m-4 mt-0">
@@ -87,10 +151,10 @@ const AnnouncementsListPage = () => {
       </div>
 
       {/* LIST */}
-      <Table columns={COLUMNS} renderRow={renderRow} data={announcementsData} />
+      <Table columns={COLUMNS} renderRow={renderRow} data={data} />
 
       {/* PAGINATION*/}
-      <Pagination />
+      <Pagination page={currentPage} count={count} />
     </div>
   );
 };

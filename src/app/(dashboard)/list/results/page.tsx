@@ -123,9 +123,7 @@ const ResultsListPage = async ({
           if (search !== undefined) {
             filters.push(
               or(
-                result.exam.some((exam) =>
-                  exam.title.ilike(`%${search}%`),
-                ),
+                result.exam.some((exam) => exam.title.ilike(`%${search}%`)),
                 result.assignment.some((assignment) =>
                   assignment.title.ilike(`%${search}%`),
                 ),
@@ -164,11 +162,11 @@ const ResultsListPage = async ({
       .offset(ITEM_PER_PAGE * (currentPage - 1))
       .all();
 
-    const countResult = await resultsQuery.aggregate((aggregate) => ({
+    const countResults = await resultsQuery.aggregate((aggregate) => ({
       totalResults: aggregate.count(),
     }));
 
-    return [data, countResult.totalResults] as const;
+    return [data, countResults.totalResults] as const;
   });
 
   return (

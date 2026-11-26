@@ -2,19 +2,13 @@ import FormModal from "@/components/FormModal";
 import Pagination from "@/components/Pagination";
 import Table from "@/components/Table";
 import TableSearch from "@/components/TableSearch";
-import { eventsData, role } from "@/lib/data";
+import { role } from "@/lib/data";
 import Image from "next/image";
-import Link from "next/link";
+import type { ResultType } from "@prisma/orm-postgres/components/runtime";
 import React from "react";
-
-type Event = {
-  id: number;
-  class: string;
-  title: string;
-  date: string;
-  startTime: string;
-  endTime: string;
-};
+import { db } from "../../../../../prisma/db";
+import { getPageNumber, ITEM_PER_PAGE } from "@/lib/settings";
+import { and } from "@prisma/orm-postgres/orm-client";
 
 const COLUMNS = [
   {
@@ -47,29 +41,98 @@ const COLUMNS = [
   },
 ];
 
-const EventsListPage = () => {
-  const renderRow = (item: Event) => (
-    <tr
-      key={item.id}
-      className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
-    >
-      <td className="flex items-center gap-4 p-4">{item.title}</td>
-      <td>{item.class}</td>
-      <td className="hidden md:table-cell">{item.date}</td>
-      <td className="hidden md:table-cell">{item.startTime}</td>
-      <td className="hidden md:table-cell">{item.endTime}</td>
-      <td>
-        <div className="flex items-center gap-2">
-          {role === "admin" && (
-            <>
-              <FormModal table="event" type="update" data={item} />
-              <FormModal table="event" type="delete" id={item.id} />
-            </>
-          )}
-        </div>
-      </td>
-    </tr>
-  );
+const getEventsQuery = () => db.orm.public.Event.include("class");
+
+type LisetEventsItem = ResultType<ReturnType<typeof getEventsQuery>>;
+
+const renderRow = (item: LisetEventsItem) => (
+  <tr
+    key={item.id}
+    className="border-b border-gray-200 even:bg-slate-50 text-sm hover:bg-lamaPurpleLight"
+  >
+    <td className="flex items-center gap-4 p-4">{item.title}</td>
+    <td>{item.class?.name || "-"}</td>
+    <td className="hidden md:table-cell">
+      {new Intl.DateTimeFormat("id-ID").format(item.startTime)}
+    </td>
+    <td className="hidden md:table-cell">
+      {item.startTime.toLocaleTimeString("id-ID", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })}
+    </td>
+    <td className="hidden md:table-cell">
+      {item.endTime.toLocaleTimeString("id-ID", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })}
+    </td>
+    <td>
+      <div className="flex items-center gap-2">
+        {role === "admin" && (
+          <>
+            <FormModal table="event" type="update" data={item} />
+            <FormModal table="event" type="delete" id={item.id} />
+          </>
+        )}
+      </div>
+    </td>
+  </tr>
+);
+
+const EventsListPage = async ({
+  searchParams,
+}: {
+  searchParams: { [key: string]: string | undefined };
+}) => {
+  const { page, ...queryParams } = searchParams;
+  const currentPage = getPageNumber(page);
+
+  let search: string | undefined;
+
+  for (const [key, value] of Object.entries(queryParams)) {
+    if (value === undefined || value === "") continue;
+
+    switch (key) {
+      case "search": {
+        search = value.trim() || undefined;
+      }
+    }
+  }
+
+  const [data, count] = await db.transaction(async (tx) => {
+    const events = tx.orm.public.Event;
+    const hashFilter = search !== undefined;
+
+    const eventsQuery = hashFilter
+      ? events.where((event) => {
+          const filters = [];
+
+          if (search !== undefined) {
+            filters.push(event.title.like(`%${search}%`));
+          }
+
+          if (filters.length === 1) {
+            return filters[0];
+          }
+
+          return and(...filters);
+        })
+      : events;
+
+    const data = await eventsQuery
+      .include("class")
+      .orderBy((event) => event.id.asc())
+      .limit(ITEM_PER_PAGE)
+      .offset(ITEM_PER_PAGE * (currentPage - 1))
+      .all();
+
+    const countEvents = await eventsQuery.aggregate((agregate) => ({
+      countEvents: agregate.count(),
+    }));
+
+    return [data, countEvents.countEvents] as const;
+  });
 
   return (
     <div className="bg-white p-4 rounded-md flex-1 m-4 mt-0">
@@ -96,10 +159,10 @@ const EventsListPage = () => {
       </div>
 
       {/* LIST */}
-      <Table columns={COLUMNS} renderRow={renderRow} data={eventsData} />
+      <Table columns={COLUMNS} renderRow={renderRow} data={data} />
 
       {/* PAGINATION*/}
-      <Pagination />
+      <Pagination page={currentPage} count={count} />
     </div>
   );
 };
