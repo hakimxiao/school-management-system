@@ -5,9 +5,8 @@ export default async function HomePage() {
   const { userId } = await auth();
 
   if (userId) {
-    redirect("/admin");
+    redirect("/sign-in");
   }
 
   redirect("/sign-in");
 }
-
